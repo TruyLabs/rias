@@ -13,7 +13,8 @@
 
 ## 🚀 Demo
 
-![Demo GIF](https://via.placeholder.com/800x400?text=KAI+Demo+Coming+Soon)
+![kai_demo](https://github.com/user-attachments/assets/c81bc457-3faf-4534-bb36-c9b9ffb3d5e9)
+
 
 > Replace this with a real GIF showing: teach → ask → answer
 
