@@ -1,0 +1,21 @@
+services:
+  kai:
+    build:
+      context: .
+      args:
+        VERSION: ${VERSION:-dev}
+        COMMIT: ${COMMIT:-none}
+    ports:
+      - "8080:8080"
+    volumes:
+      - kai-brain:/app/brain
+      - kai-sessions:/app/sessions
+      - ./config.yaml:/app/config.yaml:ro
+    environment:
+      - KAI_MCP_TOKEN=${KAI_MCP_TOKEN}
+    command: ["mcp", "--transport", "http", "--addr", "0.0.0.0:8080"]
+    restart: unless-stopped
+
+volumes:
+  kai-brain:
+  kai-sessions:

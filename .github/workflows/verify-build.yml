@@ -1,0 +1,91 @@
+name: Verify Build
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v4
+        with:
+          go-version: "1.25"
+
+      - name: Run tests
+        run: |
+          go test -race -coverprofile=coverage.out ./...
+          go tool cover -func=coverage.out
+
+      - name: Build binary
+        run: |
+          make build
+          ./kai version
+
+      - name: Verify install script
+        run: |
+          # Check for common shell issues
+          bash -n install.sh
+          echo "✓ install.sh syntax OK"
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v4
+        with:
+          go-version: "1.25"
+
+      - name: Run go vet
+        run: go vet ./...
+
+      - name: Check go mod
+        run: |
+          go mod tidy
+          git diff --exit-code go.mod go.sum || (echo "❌ go.mod/go.sum out of sync" && exit 1)
+
+  security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check for secrets
+        run: |
+          if grep -r "APIKEY\|PASSWORD\|SECRET" --include="*.go" --include="*.sh" --exclude-dir=vendor . 2>/dev/null | grep -v "example\|test"; then
+            echo "❌ Potential secrets found in code"
+            exit 1
+          fi
+          echo "✓ No obvious secrets found"
+
+      - name: Verify no hardcoded URLs
+        run: |
+          if grep -r "https://[a-z0-9-]*\\.com" --include="*.go" . 2>/dev/null | grep -v "github.com\|anthropic\|openai\|example"; then
+            echo "⚠ Check for hardcoded service URLs"
+          fi
+
+  install-script:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        image:
+          - ubuntu:22.04
+          - ubuntu:20.04
+    container:
+      image: ${{ matrix.image }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          apt-get update
+          apt-get install -y curl ca-certificates
+
+      - name: Verify install script
+        run: |
+          bash -n install.sh
+          echo "✓ Install script is syntactically valid"

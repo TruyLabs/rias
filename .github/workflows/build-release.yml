@@ -1,0 +1,208 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version tag (e.g., v1.0.0)"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: macos-latest
+            goos: darwin
+            goarch: amd64
+            artifact: kai-darwin-amd64
+          - os: macos-latest
+            goos: darwin
+            goarch: arm64
+            artifact: kai-darwin-arm64
+          - os: ubuntu-latest
+            goos: linux
+            goarch: amd64
+            artifact: kai-linux-amd64
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v4
+        with:
+          go-version: "1.25"
+
+      - name: Determine version
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "push" ]; then
+            echo "version=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+          else
+            echo "version=${{ inputs.version }}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Validate version
+        run: |
+          if ! echo "${{ steps.version.outputs.version }}" | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+'; then
+            echo "Invalid version format"
+            exit 1
+          fi
+
+      - name: Build binaries
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          VERSION: ${{ steps.version.outputs.version }}
+          COMMIT: ${{ github.sha }}
+          CGO_ENABLED: "0"
+        run: |
+          BUILD_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+
+          go build \
+            -trimpath \
+            -ldflags "-X github.com/norenis/kai.Version=$VERSION -X github.com/norenis/kai.Commit=$COMMIT -X github.com/norenis/kai.BuildDate=$BUILD_DATE" \
+            -o ${{ matrix.artifact }} \
+            ./cmd/kai
+
+          chmod +x ${{ matrix.artifact }}
+
+      - name: Generate checksums
+        run: |
+          shasum -a 256 ${{ matrix.artifact }} > ${{ matrix.artifact }}.sha256
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: |
+            ${{ matrix.artifact }}
+            ${{ matrix.artifact }}.sha256
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      darwin_arm64_sha256: ${{ steps.checksums.outputs.darwin_arm64 }}
+      darwin_amd64_sha256: ${{ steps.checksums.outputs.darwin_amd64 }}
+      linux_amd64_sha256: ${{ steps.checksums.outputs.linux_amd64 }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Determine version
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "push" ]; then
+            echo "version=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+          else
+            echo "version=${{ inputs.version }}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+
+      - name: Prepare release files
+        run: |
+          mkdir -p release
+          find dist -type f -name "kai-*" -exec cp {} release/ \;
+          echo "Release contents:"
+          ls -lah release/
+
+      - name: Create tarballs for Homebrew
+        run: |
+          mkdir -p tarballs
+          for platform in darwin-amd64 darwin-arm64 linux-amd64; do
+            binary="release/kai-${platform}"
+            if [ -f "$binary" ]; then
+              cp "$binary" kai
+              tar czf "tarballs/kai-${platform}.tar.gz" kai
+              rm kai
+            fi
+          done
+
+      - name: Compute tarball checksums
+        id: checksums
+        run: |
+          echo "darwin_arm64=$(sha256sum tarballs/kai-darwin-arm64.tar.gz | cut -d' ' -f1)" >> $GITHUB_OUTPUT
+          echo "darwin_amd64=$(sha256sum tarballs/kai-darwin-amd64.tar.gz | cut -d' ' -f1)" >> $GITHUB_OUTPUT
+          echo "linux_amd64=$(sha256sum tarballs/kai-linux-amd64.tar.gz | cut -d' ' -f1)" >> $GITHUB_OUTPUT
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ steps.version.outputs.version }}
+          files: |
+            release/*
+            tarballs/*
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+          body: |
+            ## Installation
+
+            ```bash
+            brew tap norenis/kai
+            brew install kai
+            ```
+
+            Or via the install script:
+
+            ```bash
+            curl -fsSL https://raw.githubusercontent.com/norenis/kai/main/install.sh | bash
+            ```
+
+            Or download a binary directly below for your platform.
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  update-homebrew-tap:
+    needs: release
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push'
+
+    steps:
+      - name: Checkout main repo (for formula template)
+        uses: actions/checkout@v4
+
+      - name: Checkout tap repo
+        uses: actions/checkout@v4
+        with:
+          repository: norenis/homebrew-kai
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          path: tap
+
+      - name: Generate formula from template
+        env:
+          VERSION_NUM: ${{ needs.release.outputs.version }}
+          DARWIN_ARM64_SHA256: ${{ needs.release.outputs.darwin_arm64_sha256 }}
+          DARWIN_AMD64_SHA256: ${{ needs.release.outputs.darwin_amd64_sha256 }}
+          LINUX_AMD64_SHA256: ${{ needs.release.outputs.linux_amd64_sha256 }}
+        run: |
+          # Strip leading 'v' from version
+          export VERSION_NUM="${VERSION_NUM#v}"
+          mkdir -p tap/Formula
+          envsubst '$VERSION_NUM $DARWIN_ARM64_SHA256 $DARWIN_AMD64_SHA256 $LINUX_AMD64_SHA256' \
+            < Formula/kai.rb.tpl \
+            > tap/Formula/kai.rb
+
+      - name: Commit and push formula
+        run: |
+          cd tap
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Formula/kai.rb
+          git diff --staged --quiet && echo "No changes to formula" && exit 0
+          git commit -m "Update kai to ${{ needs.release.outputs.version }}"
+          git push
