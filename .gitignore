@@ -1,0 +1,39 @@
+# Binary (root only)
+/kai
+*.exe
+
+# Sessions (user-specific)
+sessions/
+
+# Brain data (user-specific, root only)
+/brain/
+
+# Credentials & secrets
+credentials.json
+*.pem
+*.key
+.env
+.env.*
+
+# Config (user-specific)
+config.yaml
+
+# Go
+vendor/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Docs (internal planning)
+docs/
+
+# Temp files
+*.tmp

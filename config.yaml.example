@@ -1,0 +1,31 @@
+provider: claude
+providers:
+  claude:
+    auth: api_key
+    model: claude-sonnet-4-6-20250514
+    # base_url: https://api.anthropic.com  # optional: custom endpoint
+    # timeout_sec: 120                     # optional: HTTP timeout (default: 120)
+  openai:
+    auth: api_key
+    model: gpt-4o
+    # base_url: https://api.openai.com     # optional: custom endpoint (e.g. Ollama)
+    # timeout_sec: 120                     # optional: HTTP timeout (default: 120)
+brain:
+  path: ./brain
+  max_context_files: 10
+  sync:
+    git:
+      enabled: false
+      # remote: git@github.com:user/kai-brain.git  # optional: push/pull to remote
+      # branch: main                                # default: main
+    cloud:
+      backend: ""  # "gdrive" or "vercel_blob" (empty = disabled)
+      gdrive:
+        folder_id: ""  # Google Drive folder ID for brain backup
+      vercel_blob:
+        token: "${VERCEL_BLOB_TOKEN}"  # Vercel Blob read-write token
+sessions_path: ./sessions
+server:
+  listen_addr: 0.0.0.0:8080
+google:
+  service_account_path: # path to service account JSON (e.g. ./service-account.json)
