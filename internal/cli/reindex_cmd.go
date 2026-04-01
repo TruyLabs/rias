@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"log/slog"
 
-	"github.com/tinhvqbk/kai/internal/brain"
+	"github.com/norenis/kai/internal/brain"
 	"github.com/spf13/cobra"
 )
 

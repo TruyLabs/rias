@@ -17,11 +17,11 @@ import (
 	"sync"
 	"time"
 
-	kai "github.com/tinhvqbk/kai"
-	"github.com/tinhvqbk/kai/internal/brain"
-	"github.com/tinhvqbk/kai/internal/config"
-	"github.com/tinhvqbk/kai/internal/router"
-	bsync "github.com/tinhvqbk/kai/internal/sync"
+	kai "github.com/norenis/kai"
+	"github.com/norenis/kai/internal/brain"
+	"github.com/norenis/kai/internal/config"
+	"github.com/norenis/kai/internal/router"
+	bsync "github.com/norenis/kai/internal/sync"
 	"github.com/xuri/excelize/v2"
 )
 

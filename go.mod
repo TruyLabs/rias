@@ -1,4 +1,4 @@
-module github.com/tinhvqbk/kai
+module github.com/norenis/kai
 
 go 1.25.0
 

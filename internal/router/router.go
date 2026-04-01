@@ -7,11 +7,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/tinhvqbk/kai/internal/brain"
-	"github.com/tinhvqbk/kai/internal/prompt"
-	"github.com/tinhvqbk/kai/internal/provider"
-	"github.com/tinhvqbk/kai/internal/retriever"
-	"github.com/tinhvqbk/kai/internal/session"
+	"github.com/norenis/kai/internal/brain"
+	"github.com/norenis/kai/internal/prompt"
+	"github.com/norenis/kai/internal/provider"
+	"github.com/norenis/kai/internal/retriever"
+	"github.com/norenis/kai/internal/session"
 )
 
 // Confidence thresholds based on number of matching brain files.

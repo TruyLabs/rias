@@ -4,7 +4,7 @@ set -e
 # kai installation script
 # Downloads the latest pre-built binary for your platform
 
-REPO="tinhvqbk/kai"
+REPO="norenis/kai"
 INSTALL_DIR="${INSTALL_DIR:-/usr/local/bin}"
 GITHUB_LATEST_URL="https://api.github.com/repos/$REPO/releases/latest"
 

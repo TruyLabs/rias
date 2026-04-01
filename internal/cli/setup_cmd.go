@@ -7,14 +7,14 @@ import (
 	"os/exec"
 	"path/filepath"
 
-	"github.com/tinhvqbk/kai/internal/brain"
-	"github.com/tinhvqbk/kai/internal/config"
+	"github.com/norenis/kai/internal/brain"
+	"github.com/norenis/kai/internal/config"
 	"github.com/spf13/cobra"
 )
 
 const (
 	mcpConfigName = "kai"
-	moduleURL     = "github.com/tinhvqbk/kai/cmd/kai@latest"
+	moduleURL     = "github.com/norenis/kai/cmd/kai@latest"
 )
 
 func newSetupCmd() *cobra.Command {

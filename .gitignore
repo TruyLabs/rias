@@ -35,6 +35,9 @@ Thumbs.db
 # Serena
 .serena/
 
+# Claude Code local settings (personal permissions/paths)
+.claude/settings.local.json
+
 # Docs (internal planning)
 docs/
 
@@ -51,5 +54,6 @@ screenshots/
 *.xlsx
 *.csv
 
-# Service accounts
-service-account-*.json
+
+
+service-account*.json

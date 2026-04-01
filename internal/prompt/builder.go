@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/tinhvqbk/kai/internal/brain"
-	"github.com/tinhvqbk/kai/internal/provider"
+	"github.com/norenis/kai/internal/brain"
+	"github.com/norenis/kai/internal/provider"
 )
 
 // Builder assembles prompts from brain context using configurable identity.

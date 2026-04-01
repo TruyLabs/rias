@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/tinhvqbk/kai/internal/brain"
+	"github.com/norenis/kai/internal/brain"
 )
 
 func setupTestBrain(t *testing.T) *brain.FileBrain {

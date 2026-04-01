@@ -2,7 +2,7 @@
 
 BINARY    = kai
 BUILD_DIR = ./cmd/kai
-MODULE    = github.com/tinhvqbk/kai
+MODULE    = github.com/norenis/kai
 
 VERSION   ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 COMMIT    ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo none)

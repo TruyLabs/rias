@@ -10,7 +10,7 @@ RUN go mod download
 
 COPY . .
 RUN CGO_ENABLED=0 go build \
-    -ldflags "-X github.com/tinhvqbk/kai.Version=${VERSION} -X github.com/tinhvqbk/kai.Commit=${COMMIT}" \
+    -ldflags "-X github.com/norenis/kai.Version=${VERSION} -X github.com/norenis/kai.Commit=${COMMIT}" \
     -o /kai ./cmd/kai
 
 FROM alpine:3.20

@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/tinhvqbk/kai/internal/provider"
+	"github.com/norenis/kai/internal/provider"
 )
 
 func TestSaveAndLoadSession(t *testing.T) {

@@ -9,11 +9,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/tinhvqbk/kai/internal/auth"
-	"github.com/tinhvqbk/kai/internal/brain"
-	"github.com/tinhvqbk/kai/internal/config"
-	"github.com/tinhvqbk/kai/internal/prompt"
-	"github.com/tinhvqbk/kai/internal/provider"
+	"github.com/norenis/kai/internal/auth"
+	"github.com/norenis/kai/internal/brain"
+	"github.com/norenis/kai/internal/config"
+	"github.com/norenis/kai/internal/prompt"
+	"github.com/norenis/kai/internal/provider"
 	"github.com/spf13/cobra"
 )
 
