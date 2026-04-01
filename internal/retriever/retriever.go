@@ -2,6 +2,7 @@ package retriever
 
 import (
 	"context"
+	"fmt"
 	"sort"
 	"strings"
 
@@ -21,6 +22,9 @@ var stopWords = map[string]bool{
 	"which": true, "who": true, "about": true, "think": true,
 }
 
+// MaxChunksPerFile prevents one file from dominating the results.
+const MaxChunksPerFile = 2
+
 // FileRetriever retrieves brain files by keyword/tag matching.
 type FileRetriever struct {
 	brain           *brain.FileBrain
@@ -32,15 +36,15 @@ func New(b *brain.FileBrain, maxContextFiles int) *FileRetriever {
 	return &FileRetriever{brain: b, maxContextFiles: maxContextFiles}
 }
 
-// Retrieve finds brain files relevant to the query.
-// Always includes identity/profile.md as baseline context.
-// Uses full-text TF-IDF search with relevance scoring, falling back to tag-based search.
+// Retrieve finds brain chunks relevant to the query using BM25 + PRF.
+// Returns synthetic BrainFile entries where Content contains only the
+// matched chunk, significantly reducing token count in the context.
 func (r *FileRetriever) Retrieve(ctx context.Context, query string, limit int) ([]*brain.BrainFile, error) {
 	if limit > r.maxContextFiles {
 		limit = r.maxContextFiles
 	}
 
-	// Always include profile as first result
+	// Always include profile as first result.
 	var results []*brain.BrainFile
 	profile, err := r.brain.Load("identity/profile.md")
 	if err == nil {
@@ -49,78 +53,119 @@ func (r *FileRetriever) Retrieve(ctx context.Context, query string, limit int) (
 
 	seen := map[string]bool{"identity/profile.md": true}
 
-	// Try full-text TF-IDF search first
-	type scoredPath struct {
-		path  string
+	// Try chunk-based BM25+PRF search first.
+	type scoredChunk struct {
+		bf    *brain.BrainFile
 		score float64
 	}
-	var candidates []scoredPath
+	var candidates []scoredChunk
 
-	fullResults := r.brain.QueryFullIndex(query)
-	if len(fullResults) > 0 {
-		for _, fr := range fullResults {
-			if seen[fr.Path] {
+	chunkResults := r.brain.QueryHybrid(query)
+	if len(chunkResults) > 0 {
+		// Track chunks per file to cap at MaxChunksPerFile.
+		fileChunkCount := make(map[string]int)
+
+		for _, cr := range chunkResults {
+			if seen[cr.DocPath] {
 				continue
 			}
-			candidates = append(candidates, scoredPath{path: fr.Path, score: fr.Score})
+			if fileChunkCount[cr.DocPath] >= MaxChunksPerFile {
+				continue
+			}
+
+			// Load the parent file and extract only the chunk text.
+			parent, err := r.brain.Load(cr.DocPath)
+			if err != nil {
+				continue
+			}
+
+			content := strings.TrimSpace(parent.Content)
+			chunkText := extractChunkText(content, cr.Offset, cr.Length)
+
+			displayPath := cr.DocPath
+			if cr.ChunkID > 0 {
+				displayPath = fmt.Sprintf("%s#%d", cr.DocPath, cr.ChunkID)
+			}
+
+			chunk := &brain.BrainFile{
+				Path:       displayPath,
+				Tags:       parent.Tags,
+				Confidence: parent.Confidence,
+				Source:     parent.Source,
+				Updated:    parent.Updated,
+				Content:    chunkText,
+			}
+
+			finalScore := brain.RelevanceScore(parent, cr.Score)
+			candidates = append(candidates, scoredChunk{bf: chunk, score: finalScore})
+			fileChunkCount[cr.DocPath]++
 		}
 	} else {
-		// Fall back to tag-based search
+		// Fall back to tag-based search.
 		keywords := extractKeywords(query)
 		tagResults := r.brain.QueryIndex(keywords)
 		for _, tr := range tagResults {
 			if seen[tr.Path] {
 				continue
 			}
-			candidates = append(candidates, scoredPath{path: tr.Path, score: float64(tr.Score)})
+			bf, err := r.brain.Load(tr.Path)
+			if err != nil {
+				continue
+			}
+			finalScore := brain.RelevanceScore(bf, float64(tr.Score))
+			candidates = append(candidates, scoredChunk{bf: bf, score: finalScore})
 		}
 	}
 
-	// Load files and apply relevance scoring
-	type loadedCandidate struct {
-		bf    *brain.BrainFile
-		score float64
-	}
-	var loaded []loadedCandidate
-	for _, c := range candidates {
-		bf, err := r.brain.Load(c.path)
-		if err != nil {
-			continue
-		}
-		finalScore := brain.RelevanceScore(bf, c.score)
-		loaded = append(loaded, loadedCandidate{bf: bf, score: finalScore})
-	}
-
-	// Sort by final relevance score descending
-	sort.Slice(loaded, func(i, j int) bool {
-		return loaded[i].score > loaded[j].score
+	sort.Slice(candidates, func(i, j int) bool {
+		return candidates[i].score > candidates[j].score
 	})
 
-	// Collect top results
-	for _, lc := range loaded {
+	for _, c := range candidates {
 		if len(results) >= limit {
 			break
 		}
-		if seen[lc.bf.Path] {
-			continue
+		// Deduplicate by doc path (strip chunk suffix).
+		docPath := c.bf.Path
+		if idx := strings.Index(docPath, "#"); idx > 0 {
+			docPath = docPath[:idx]
 		}
-		results = append(results, lc.bf)
-		seen[lc.bf.Path] = true
+		// Allow multiple chunks from the same file (already capped above).
+		results = append(results, c.bf)
 	}
 
-	// Touch each retrieved file to track access (best-effort, don't fail retrieval)
+	// Touch parent files to track access.
+	touched := make(map[string]bool)
 	for _, bf := range results {
-		_ = r.brain.Touch(bf.Path)
+		docPath := bf.Path
+		if idx := strings.Index(docPath, "#"); idx > 0 {
+			docPath = docPath[:idx]
+		}
+		if !touched[docPath] {
+			_ = r.brain.Touch(docPath)
+			touched[docPath] = true
+		}
 	}
 
 	return results, nil
+}
+
+// extractChunkText safely extracts a substring from content by offset and length.
+func extractChunkText(content string, offset, length int) string {
+	if offset >= len(content) {
+		return content
+	}
+	end := offset + length
+	if end > len(content) {
+		end = len(content)
+	}
+	return strings.TrimSpace(content[offset:end])
 }
 
 func extractKeywords(query string) []string {
 	words := strings.Fields(strings.ToLower(query))
 	var keywords []string
 	for _, w := range words {
-		// Strip punctuation
 		w = strings.Trim(w, "?!.,;:'\"")
 		if w == "" || stopWords[w] {
 			continue

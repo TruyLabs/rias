@@ -65,7 +65,7 @@ func TestFullPipeline(t *testing.T) {
 	sessMgr := session.NewManager(sessDir)
 	ret := retriever.New(b, 10)
 
-	r := New(b, ret, prompt.NewBuilder(), &learningMockProvider{}, sessMgr)
+	r := New(b, ret, prompt.NewBuilder("kai", "TestUser"), &learningMockProvider{}, sessMgr)
 
 	// Run a chat
 	sess := sessMgr.New("mock")

@@ -1,0 +1,125 @@
+name: Build and Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version tag (e.g., v1.0.0)"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: macos-latest
+            goos: darwin
+            goarch: amd64
+            artifact: kai-darwin-amd64
+          - os: macos-latest
+            goos: darwin
+            goarch: arm64
+            artifact: kai-darwin-arm64
+          - os: ubuntu-latest
+            goos: linux
+            goarch: amd64
+            artifact: kai-linux-amd64
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v4
+        with:
+          go-version: "1.25"
+
+      - name: Validate version
+        run: |
+          if ! echo "${{ inputs.version }}" | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+'; then
+            echo "Invalid version format"
+            exit 1
+          fi
+
+      - name: Build binaries
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          VERSION: ${{ inputs.version }}
+          COMMIT: ${{ github.sha }}
+          CGO_ENABLED: "0"
+        run: |
+          BUILD_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+
+          go build \
+            -trimpath \
+            -ldflags "-X github.com/tinhvqbk/kai.Version=$VERSION -X github.com/tinhvqbk/kai.Commit=$COMMIT -X github.com/tinhvqbk/kai.BuildDate=$BUILD_DATE" \
+            -o ${{ matrix.artifact }} \
+            ./cmd/kai
+
+          chmod +x ${{ matrix.artifact }}
+
+      - name: Generate checksums
+        run: |
+          sha256sum ${{ matrix.artifact }} > ${{ matrix.artifact }}.sha256
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: |
+            ${{ matrix.artifact }}
+            ${{ matrix.artifact }}.sha256
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout source repo
+        uses: actions/checkout@v4
+
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+
+      - name: Prepare release files
+        run: |
+          mkdir -p release
+
+          # binaries + checksums
+          find dist -type f -name "kai-*" -exec cp {} release/ \;
+
+          # include README (rename)
+          cp KAI_RELEASES_README.md release/README.md
+
+          # include install script
+          cp install.sh release/install.sh
+
+          echo "Final release contents:"
+          ls -lah release/
+
+      - name: Create GitHub Release (Repo B)
+        uses: softprops/action-gh-release@v1
+        with:
+          repository: tinhvqbk/kai
+          tag_name: ${{ inputs.version }}
+          files: release/*
+          draft: false
+          prerelease: false
+          body: |
+            # kai ${{ inputs.version }}
+
+            Pre-built binaries for macOS (Intel & Apple Silicon) and Linux.
+
+            ## Installation
+
+            ```bash
+            curl -fsSL https://raw.githubusercontent.com/tinhvqbk/kai/main/install.sh | bash
+            ```
+        env:
+          GITHUB_TOKEN: ${{ secrets.PAT_TOKEN }}

@@ -32,8 +32,24 @@ Thumbs.db
 *.swo
 *~
 
+# Serena
+.serena/
+
 # Docs (internal planning)
 docs/
 
+# Node / Playwright
+node_modules/
+test-results/
+playwright-report/
+screenshots/
+
 # Temp files
 *.tmp
+
+# Data files
+*.xlsx
+*.csv
+
+# Service accounts
+service-account-*.json

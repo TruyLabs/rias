@@ -3,7 +3,8 @@ package router
 import (
 	"context"
 	"fmt"
-	"log"
+	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/tinhvqbk/kai/internal/brain"
@@ -59,6 +60,84 @@ func New(
 		provider:  p,
 		sessions:  sm,
 	}
+}
+
+// AskRetrievalLimit is the max brain files for read-only ask (smaller than chat to keep prompts lean).
+const AskRetrievalLimit = 3
+
+// Ask processes a read-only question — no learning extraction, no session history.
+// Uses a compact prompt to keep token count low for small/local models.
+func (r *Router) Ask(ctx context.Context, question string) (*ChatResult, error) {
+	brainFiles, err := r.retriever.Retrieve(ctx, question, AskRetrievalLimit)
+	if err != nil {
+		return nil, fmt.Errorf("retrieve: %w", err)
+	}
+
+	var brainPaths []string
+	for _, bf := range brainFiles {
+		brainPaths = append(brainPaths, bf.Path)
+	}
+
+	// Compact system prompt — just the brain context, no full personality.
+	systemPrompt := "Answer using the context below. Be concise.\n\n"
+	for _, bf := range brainFiles {
+		systemPrompt += "### " + bf.Path + "\n" + strings.TrimSpace(bf.Content) + "\n\n"
+	}
+	messages := []provider.Message{{Role: "user", Content: question}}
+
+	resp, err := r.provider.Chat(ctx, systemPrompt, messages)
+	if err != nil {
+		return nil, fmt.Errorf("llm chat: %w", err)
+	}
+
+	confidence := ConfidenceLow
+	if len(brainFiles) > HighConfidenceThreshold {
+		confidence = ConfidenceHigh
+	} else if len(brainFiles) > MediumConfidenceThreshold {
+		confidence = ConfidenceMedium
+	}
+
+	return &ChatResult{
+		Response:       resp.Content,
+		BrainFilesUsed: brainPaths,
+		Confidence:     confidence,
+	}, nil
+}
+
+// StreamAsk streams a brain-augmented answer. Returns channel of chunks and brain files used.
+func (r *Router) StreamAsk(ctx context.Context, question string) (<-chan provider.Chunk, []string, error) {
+	brainFiles, err := r.retriever.Retrieve(ctx, question, AskRetrievalLimit)
+	if err != nil {
+		return nil, nil, fmt.Errorf("retrieve: %w", err)
+	}
+
+	var brainPaths []string
+	systemPrompt := "Answer using the context below. Be concise.\n\n"
+	for _, bf := range brainFiles {
+		brainPaths = append(brainPaths, bf.Path)
+		systemPrompt += "### " + bf.Path + "\n" + strings.TrimSpace(bf.Content) + "\n\n"
+	}
+
+	ch, err := r.provider.Stream(ctx, systemPrompt, []provider.Message{{Role: "user", Content: question}})
+	if err != nil {
+		return nil, nil, fmt.Errorf("llm stream: %w", err)
+	}
+	return ch, brainPaths, nil
+}
+
+// StreamFreeChat streams a direct LLM response without brain context.
+func (r *Router) StreamFreeChat(ctx context.Context, message string) (<-chan provider.Chunk, error) {
+	return r.provider.Stream(ctx, "", []provider.Message{{Role: "user", Content: message}})
+}
+
+// FreeChat sends a message directly to the LLM without brain context.
+func (r *Router) FreeChat(ctx context.Context, message string) (*ChatResult, error) {
+	messages := []provider.Message{{Role: "user", Content: message}}
+	resp, err := r.provider.Chat(ctx, "", messages)
+	if err != nil {
+		return nil, fmt.Errorf("llm chat: %w", err)
+	}
+	return &ChatResult{Response: resp.Content}, nil
 }
 
 // Chat processes a user message through the full pipeline.
@@ -138,13 +217,13 @@ func (r *Router) extractLearnings(ctx context.Context, brainPaths []string, sess
 		{Role: "user", Content: learningPrompt},
 	})
 	if err != nil {
-		log.Printf("learning extraction failed: %v", err)
+		slog.Warn("learning extraction failed", "err", err)
 		return
 	}
 
 	learnings, err := brain.ParseLearnings(resp.Content)
 	if err != nil {
-		log.Printf("parse learnings failed: %v", err)
+		slog.Warn("parse learnings failed", "err", err)
 		return
 	}
 
@@ -153,12 +232,12 @@ func (r *Router) extractLearnings(ctx context.Context, brainPaths []string, sess
 	}
 
 	if err := r.brain.Learn(learnings); err != nil {
-		log.Printf("brain learn failed: %v", err)
+		slog.Error("brain learn failed", "err", err)
 		return
 	}
 
 	if err := r.brain.RebuildIndex(); err != nil {
-		log.Printf("rebuild index failed: %v", err)
+		slog.Warn("rebuild index failed", "err", err)
 	}
 
 	sess.LearningsExtracted += len(learnings)

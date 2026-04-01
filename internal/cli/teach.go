@@ -20,7 +20,7 @@ import (
 func newTeachCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "teach",
-		Short: "Enter teaching mode — tell kai about yourself",
+		Short: "Enter teaching mode — tell your digital twin about yourself",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, err := loadConfig()
 			if err != nil {
@@ -39,7 +39,8 @@ func newTeachCmd() *cobra.Command {
 
 func runTeachMode(cfg *config.Config) error {
 	b := brain.New(cfg.Brain.Path)
-	builder := prompt.NewBuilder()
+	applyEmbedConfig(b, cfg)
+	builder := prompt.NewBuilder(cfg.AgentName(), cfg.UserName())
 	reader := bufio.NewReader(os.Stdin)
 	ctx := context.Background()
 
@@ -68,6 +69,8 @@ func runTeachMode(cfg *config.Config) error {
 		prov = provider.NewClaude(apiKey, provCfg.Model, provCfg.BaseURL, timeout)
 	case "openai":
 		prov = provider.NewOpenAI(apiKey, provCfg.Model, provCfg.BaseURL, timeout)
+	case "gemini":
+		prov = provider.NewGemini(apiKey, provCfg.Model, provCfg.BaseURL, timeout)
 	default:
 		return fmt.Errorf("unsupported provider: %s", cfg.Provider)
 	}

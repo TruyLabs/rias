@@ -35,8 +35,8 @@ func init() {
 	}
 }
 
-// computeDocVectors builds TF-IDF vectors per document using content and tag
-// fields only. Path tokens are excluded: the category directory token (e.g.
+// computeDocVectors builds BM25-weighted vectors per document using content and
+// tag fields only. Path tokens are excluded: the category directory token (e.g.
 // "knowledge") is shared by every file in that category and would inflate
 // same-category similarity, producing false-positive duplicates.
 func (b *FileBrain) computeDocVectors(idx *FullIndex) map[string]map[string]float64 {
@@ -45,10 +45,11 @@ func (b *FileBrain) computeDocVectors(idx *FullIndex) map[string]map[string]floa
 		vectors[docPath] = make(map[string]float64)
 	}
 
-	fieldBoost := map[string]float64{
-		"tag":     FieldBoostTag,
-		"content": FieldBoostContent,
+	avgdl := idx.AvgDocLength
+	if avgdl == 0 {
+		avgdl = 1
 	}
+	N := float64(idx.TotalDocs)
 
 	for term, postings := range idx.InvertedIndex {
 		docSet := make(map[string]bool)
@@ -60,16 +61,22 @@ func (b *FileBrain) computeDocVectors(idx *FullIndex) map[string]map[string]floa
 		if len(docSet) == 0 {
 			continue
 		}
-		idf := math.Log(float64(idx.TotalDocs)/float64(len(docSet))) + 1.0
+		n := float64(len(docSet))
+		idf := math.Log((N-n+0.5)/(n+0.5) + 1.0)
 
 		for _, p := range postings {
 			if p.Field == "path" {
 				continue
 			}
 			if _, ok := vectors[p.Path]; !ok {
-				continue // guard against index corruption
+				continue
 			}
-			vectors[p.Path][term] += float64(p.Frequency) * idf * fieldBoost[p.Field]
+			tf := float64(p.Frequency)
+			dl := float64(idx.Documents[p.Path].WordCount)
+			num := tf * (BM25K1 + 1)
+			denom := tf + BM25K1*(1-BM25B+BM25B*dl/avgdl)
+			boost := fieldBoost(p.Field)
+			vectors[p.Path][term] += idf * (num / denom) * boost
 		}
 	}
 
@@ -165,12 +172,12 @@ func bestTarget(files []*BrainFile) *BrainFile {
 	return best
 }
 
-// ensureFullIndex loads the full index, rebuilding if missing or corrupted.
-// Must only be called while holding b.mu (write lock). Uses internal unlocked
-// helpers only — never the public RebuildFullIndex/LoadFullIndex methods.
+// ensureFullIndex loads the full index, rebuilding if missing, corrupted, or
+// from a pre-chunking format (TotalChunks == 0). Must only be called while
+// holding b.mu (write lock). Uses internal unlocked helpers only.
 func (b *FileBrain) ensureFullIndex() (*FullIndex, error) {
 	idx, err := b.loadFullIndex()
-	if err != nil {
+	if err != nil || idx.TotalChunks == 0 {
 		if rebuildErr := b.rebuildFullIndex(); rebuildErr != nil {
 			return nil, fmt.Errorf("rebuild full index: %w", rebuildErr)
 		}

@@ -27,7 +27,7 @@ func TestBuildSystemPrompt(t *testing.T) {
 		},
 	}
 
-	b := NewBuilder()
+	b := NewBuilder("kai", "Kyle")
 	prompt := b.BuildSystemPrompt(brainFiles)
 
 	if !strings.Contains(prompt, "Kyle is a software engineer") {
@@ -42,7 +42,7 @@ func TestBuildSystemPrompt(t *testing.T) {
 }
 
 func TestBuildMessages(t *testing.T) {
-	b := NewBuilder()
+	b := NewBuilder("kai", "Kyle")
 	history := []provider.Message{
 		{Role: "user", Content: "what do I think about Go?"},
 		{Role: "assistant", Content: "You love Go."},

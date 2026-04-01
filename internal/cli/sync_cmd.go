@@ -13,7 +13,7 @@ import (
 func newSyncCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "sync",
-		Short: "Sync brain to git and cloud storage",
+		Short: "Sync brain to git",
 	}
 
 	cmd.AddCommand(newSyncInitCmd())
@@ -27,7 +27,7 @@ func newSyncCmd() *cobra.Command {
 func newSyncInitCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "init",
-		Short: "Initialize sync backends (git repo, cloud credentials)",
+		Short: "Initialize git sync",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			syncer, err := buildSyncer()
 			if err != nil {
@@ -45,10 +45,8 @@ func newSyncInitCmd() *cobra.Command {
 func newSyncPushCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "push",
-		Short: "Push brain to remote (git commit+push, cloud upload)",
+		Short: "Push brain to git",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			gitOnly, _ := cmd.Flags().GetBool("git-only")
-			cloudOnly, _ := cmd.Flags().GetBool("cloud-only")
 			syncer, err := buildSyncer()
 			if err != nil {
 				return err
@@ -57,21 +55,17 @@ func newSyncPushCmd() *cobra.Command {
 				fmt.Println("No sync backends configured.")
 				return nil
 			}
-			return syncer.Push(context.Background(), gitOnly, cloudOnly)
+			return syncer.Push(context.Background(), false, false)
 		},
 	}
-	cmd.Flags().Bool("git-only", false, "Only push to git")
-	cmd.Flags().Bool("cloud-only", false, "Only push to cloud")
 	return cmd
 }
 
 func newSyncPullCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "pull",
-		Short: "Pull brain from remote (git pull, cloud download)",
+		Short: "Pull brain from git",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			gitOnly, _ := cmd.Flags().GetBool("git-only")
-			cloudOnly, _ := cmd.Flags().GetBool("cloud-only")
 			syncer, err := buildSyncer()
 			if err != nil {
 				return err
@@ -80,7 +74,7 @@ func newSyncPullCmd() *cobra.Command {
 				fmt.Println("No sync backends configured.")
 				return nil
 			}
-			if err := syncer.Pull(context.Background(), gitOnly, cloudOnly); err != nil {
+			if err := syncer.Pull(context.Background(), false, false); err != nil {
 				return err
 			}
 
@@ -94,8 +88,6 @@ func newSyncPullCmd() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().Bool("git-only", false, "Only pull from git")
-	cmd.Flags().Bool("cloud-only", false, "Only pull from cloud")
 	return cmd
 }
 
@@ -170,29 +162,5 @@ func buildSyncer() (*bsync.Syncer, error) {
 		)
 	}
 
-	var cloudBackend bsync.Backend
-	switch cfg.Brain.Sync.Cloud.Backend {
-	case "gdrive":
-		svcPath := cfg.Google.ServiceAccountPath
-		if svcPath == "" {
-			return nil, fmt.Errorf("gdrive backend requires google.service_account_path in config")
-		}
-		cb, err := bsync.NewGDriveBackend(context.Background(), svcPath, cfg.Brain.Sync.Cloud.GDrive.FolderID)
-		if err != nil {
-			return nil, fmt.Errorf("init gdrive backend: %w", err)
-		}
-		cloudBackend = cb
-	case "vercel_blob":
-		token := cfg.Brain.Sync.Cloud.VercelBlob.Token
-		if token == "" {
-			return nil, fmt.Errorf("vercel_blob backend requires brain.sync.cloud.vercel_blob.token in config")
-		}
-		cloudBackend = bsync.NewVercelBlobBackend(token)
-	case "":
-		// No cloud backend configured.
-	default:
-		return nil, fmt.Errorf("unknown cloud backend: %s", cfg.Brain.Sync.Cloud.Backend)
-	}
-
-	return bsync.NewSyncer(brainPath, gitBackend, cloudBackend), nil
+	return bsync.NewSyncer(brainPath, gitBackend, nil), nil
 }

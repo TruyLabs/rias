@@ -14,29 +14,37 @@ const (
 	DefaultConfigFile      = "config.yaml"
 	DefaultBrainPath       = "./brain"
 	DefaultSessionsPath    = "./sessions"
-	DefaultMaxContextFiles = 10
+	DefaultMaxContextFiles = 5
 	DefaultListenAddr      = "0.0.0.0:8080"
 	DefaultProviderTimeout = 120 // seconds
 )
 
+// Default agent identity values.
+const (
+	DefaultAgentName = "kai"
+	DefaultUserName  = "Kyle"
+)
+
 // Config is the top-level application configuration.
 type Config struct {
+	Agent        AgentConfig               `yaml:"agent"`
 	Provider     string                    `yaml:"provider"`
 	Providers    map[string]ProviderConfig `yaml:"providers"`
 	Brain        BrainConfig               `yaml:"brain"`
 	SessionsPath string                    `yaml:"sessions_path"`
 	Server       ServerConfig              `yaml:"server"`
-	Google       GoogleConfig              `yaml:"google"`
+}
+
+// AgentConfig holds the agent and user identity.
+type AgentConfig struct {
+	Name     string `yaml:"name"`      // Display name for the AI agent (default: "kai")
+	UserName string `yaml:"user_name"` // User's name for personalization (default: "User")
 }
 
 // ServerConfig holds HTTP server settings.
 type ServerConfig struct {
-	ListenAddr string `yaml:"listen_addr"`
-}
-
-// GoogleConfig holds Google API settings.
-type GoogleConfig struct {
-	ServiceAccountPath string `yaml:"service_account_path"`
+	ListenAddr   string `yaml:"listen_addr"`
+	DashboardPIN string `yaml:"dashboard_pin"` // PIN lock for dashboard (empty = no auth)
 }
 
 // ProviderConfig holds per-provider settings.
@@ -50,15 +58,27 @@ type ProviderConfig struct {
 
 // BrainConfig holds brain storage settings.
 type BrainConfig struct {
-	Path            string     `yaml:"path"`
-	MaxContextFiles int        `yaml:"max_context_files"`
-	Sync            SyncConfig `yaml:"sync"`
+	Path            string      `yaml:"path"`
+	MaxContextFiles int         `yaml:"max_context_files"`
+	Sync            SyncConfig  `yaml:"sync"`
+	Embeddings      EmbedConfig `yaml:"embeddings"`
+}
+
+// EmbedConfig holds embedding settings for vector search.
+type EmbedConfig struct {
+	Provider string       `yaml:"provider"` // "ollama" or "lsi" (default: auto — tries ollama, falls back to lsi)
+	Ollama   OllamaConfig `yaml:"ollama"`
+}
+
+// OllamaConfig holds Ollama embedding settings.
+type OllamaConfig struct {
+	URL   string `yaml:"url"`   // Ollama API base URL (default: http://localhost:11434)
+	Model string `yaml:"model"` // Embedding model name (default: nomic-embed-text)
 }
 
 // SyncConfig holds brain sync settings.
 type SyncConfig struct {
-	Git   GitSyncConfig   `yaml:"git"`
-	Cloud CloudSyncConfig `yaml:"cloud"`
+	Git GitSyncConfig `yaml:"git"`
 }
 
 // GitSyncConfig holds git-based sync settings.
@@ -66,23 +86,6 @@ type GitSyncConfig struct {
 	Enabled bool   `yaml:"enabled"`
 	Remote  string `yaml:"remote"`
 	Branch  string `yaml:"branch"`
-}
-
-// CloudSyncConfig holds cloud backup settings.
-type CloudSyncConfig struct {
-	Backend    string           `yaml:"backend"`
-	GDrive     GDriveConfig     `yaml:"gdrive"`
-	VercelBlob VercelBlobConfig `yaml:"vercel_blob"`
-}
-
-// GDriveConfig holds Google Drive backup settings.
-type GDriveConfig struct {
-	FolderID string `yaml:"folder_id"`
-}
-
-// VercelBlobConfig holds Vercel Blob backup settings.
-type VercelBlobConfig struct {
-	Token string `yaml:"token"`
 }
 
 var envVarPattern = regexp.MustCompile(`\$\{(\w+)\}`)
@@ -118,6 +121,10 @@ func Load(path string) (*Config, error) {
 // Defaults returns a Config with sensible defaults and no provider.
 func Defaults() *Config {
 	return &Config{
+		Agent: AgentConfig{
+			Name:     DefaultAgentName,
+			UserName: DefaultUserName,
+		},
 		Brain: BrainConfig{
 			Path:            DefaultBrainPath,
 			MaxContextFiles: DefaultMaxContextFiles,
@@ -127,4 +134,20 @@ func Defaults() *Config {
 			ListenAddr: DefaultListenAddr,
 		},
 	}
+}
+
+// AgentName returns the configured agent name, falling back to default.
+func (c *Config) AgentName() string {
+	if c.Agent.Name != "" {
+		return c.Agent.Name
+	}
+	return DefaultAgentName
+}
+
+// UserName returns the configured user name, falling back to default.
+func (c *Config) UserName() string {
+	if c.Agent.UserName != "" {
+		return c.Agent.UserName
+	}
+	return DefaultUserName
 }

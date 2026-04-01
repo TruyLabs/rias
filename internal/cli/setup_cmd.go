@@ -6,9 +6,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 
 	"github.com/tinhvqbk/kai/internal/brain"
+	"github.com/tinhvqbk/kai/internal/config"
 	"github.com/spf13/cobra"
 )
 
@@ -18,51 +18,37 @@ const (
 )
 
 func newSetupCmd() *cobra.Command {
-	var skipInstall bool
+	var useLocal bool
 
 	cmd := &cobra.Command{
 		Use:   "setup",
-		Short: "Install kai and configure as MCP server for Claude Code",
+		Short: "Configure as MCP server for Claude Code",
 		Long: `One-time setup that:
-  1. Installs kai binary via 'go install'
-  2. Creates default brain directory and config
-  3. Registers kai as an MCP server for Claude Code`,
+  1. Creates default brain directory and config
+  2. Registers as an MCP server for Claude Code
+
+By default uses 'go run' from the module (no install needed).
+Use --local to register the current binary instead.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runSetup(skipInstall)
+			return runSetup(useLocal)
 		},
 	}
 
-	cmd.Flags().BoolVar(&skipInstall, "skip-install", false, "Skip 'go install' (use existing binary)")
+	cmd.Flags().BoolVar(&useLocal, "local", false, "Use the current binary path instead of 'go run'")
 
 	return cmd
 }
 
-func runSetup(skipInstall bool) error {
-	// Step 1: Install binary.
-	if !skipInstall {
-		fmt.Println("Installing kai...")
-		install := exec.Command("go", "install", moduleURL)
-		install.Stdout = os.Stdout
-		install.Stderr = os.Stderr
-		if err := install.Run(); err != nil {
-			return fmt.Errorf("go install failed: %w\n  Run with --skip-install if kai is already on PATH", err)
-		}
-		fmt.Println("  Installed kai binary.")
-	}
+func runSetup(useLocal bool) error {
+	agentName := config.DefaultAgentName
 
-	// Verify kai is on PATH.
-	kaiPath, err := exec.LookPath("kai")
-	if err != nil {
-		return fmt.Errorf("kai not found on PATH — ensure $GOPATH/bin is in your PATH")
-	}
-	fmt.Printf("  Binary: %s\n", kaiPath)
-
-	// Step 2: Create brain directory.
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
 		return err
 	}
-	brainPath := filepath.Join(homeDir, ".kai", "brain")
+
+	// Step 1: Create brain directory.
+	brainPath := filepath.Join(homeDir, "."+agentName, "brain")
 	for _, cat := range brain.DefaultCategories {
 		dir := filepath.Join(brainPath, cat)
 		if err := os.MkdirAll(dir, 0755); err != nil {
@@ -71,15 +57,18 @@ func runSetup(skipInstall bool) error {
 	}
 	fmt.Printf("  Brain: %s\n", brainPath)
 
-	// Step 3: Create default config if not exists.
-	configPath := filepath.Join(homeDir, ".kai", "config.yaml")
+	// Step 2: Create default config if not exists.
+	configPath := filepath.Join(homeDir, "."+agentName, "config.yaml")
 	if _, err := os.Stat(configPath); os.IsNotExist(err) {
-		defaultConfig := fmt.Sprintf(`# kai configuration
+		defaultConfig := fmt.Sprintf(`# %s configuration
+agent:
+  name: %s
+  user_name: %s
 brain:
   path: %s
-  max_context_files: 10
+  max_context_files: 5
 sessions_path: %s
-`, brainPath, filepath.Join(homeDir, ".kai", "sessions"))
+`, agentName, agentName, config.DefaultUserName, brainPath, filepath.Join(homeDir, "."+agentName, "sessions"))
 		if err := os.WriteFile(configPath, []byte(defaultConfig), 0644); err != nil {
 			return fmt.Errorf("write config: %w", err)
 		}
@@ -88,25 +77,23 @@ sessions_path: %s
 		fmt.Printf("  Config: %s (already exists)\n", configPath)
 	}
 
-	// Step 4: Register as Claude Code MCP server.
-	if err := registerMCPServer(homeDir, kaiPath, configPath); err != nil {
+	// Step 3: Register as Claude Code MCP server.
+	if err := registerMCPServer(homeDir, configPath, useLocal); err != nil {
 		return fmt.Errorf("register MCP server: %w", err)
 	}
 
-	fmt.Println("\nSetup complete! kai is ready as an MCP server for Claude Code.")
+	fmt.Printf("\nSetup complete! %s is ready as an MCP server for Claude Code.\n", agentName)
 	fmt.Println("\nNext steps:")
-	fmt.Println("  1. Teach kai about yourself:  kai teach --config " + configPath)
-	fmt.Println("  2. Restart Claude Code to pick up the MCP server")
+	fmt.Println("  1. Restart Claude Code to pick up the MCP server")
+	fmt.Printf("  2. Ask Claude Code to teach %s about you\n", agentName)
 	return nil
 }
 
-func registerMCPServer(homeDir, kaiPath, configPath string) error {
-	// Write .mcp.json in the user's home directory for global MCP access.
+func registerMCPServer(homeDir, configPath string, useLocal bool) error {
 	mcpFile := filepath.Join(homeDir, ".mcp.json")
 
 	var mcpConfig map[string]interface{}
 
-	// Read existing .mcp.json if it exists.
 	if data, err := os.ReadFile(mcpFile); err == nil {
 		if err := json.Unmarshal(data, &mcpConfig); err != nil {
 			mcpConfig = make(map[string]interface{})
@@ -115,20 +102,43 @@ func registerMCPServer(homeDir, kaiPath, configPath string) error {
 		mcpConfig = make(map[string]interface{})
 	}
 
-	// Ensure mcpServers key exists.
 	servers, ok := mcpConfig["mcpServers"].(map[string]interface{})
 	if !ok {
 		servers = make(map[string]interface{})
 		mcpConfig["mcpServers"] = servers
 	}
 
-	// Add kai server entry.
-	servers[mcpConfigName] = map[string]interface{}{
-		"type":    "stdio",
-		"command": kaiPath,
-		"args":    []string{"mcp", "--config", configPath},
-		"env":     map[string]string{},
+	var entry map[string]interface{}
+
+	if useLocal {
+		// Use the current binary directly.
+		kaiPath, err := exec.LookPath(config.DefaultAgentName)
+		if err != nil {
+			// Fall back to the current executable.
+			kaiPath, err = os.Executable()
+			if err != nil {
+				return fmt.Errorf("%s not found on PATH and cannot determine current executable", config.DefaultAgentName)
+			}
+		}
+		entry = map[string]interface{}{
+			"type":    "stdio",
+			"command": kaiPath,
+			"args":    []string{"mcp", "--config", configPath},
+			"env":     map[string]string{},
+		}
+		fmt.Printf("  Mode: local binary (%s)\n", kaiPath)
+	} else {
+		// Use 'go run' from module — no install needed, always runs latest.
+		entry = map[string]interface{}{
+			"type":    "stdio",
+			"command": "go",
+			"args":    []string{"run", moduleURL, "mcp", "--config", configPath},
+			"env":     map[string]string{},
+		}
+		fmt.Printf("  Mode: go run %s\n", moduleURL)
 	}
+
+	servers[mcpConfigName] = entry
 
 	data, err := json.MarshalIndent(mcpConfig, "", "  ")
 	if err != nil {
@@ -139,11 +149,5 @@ func registerMCPServer(homeDir, kaiPath, configPath string) error {
 		return err
 	}
 	fmt.Printf("  MCP config: %s\n", mcpFile)
-
-	// Platform hint.
-	if runtime.GOOS == "darwin" {
-		fmt.Println("  Registered kai as global MCP server for Claude Code.")
-	}
-
 	return nil
 }

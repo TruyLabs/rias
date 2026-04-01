@@ -33,9 +33,19 @@ func loadConfig() (*config.Config, error) {
 	return config.Load(path)
 }
 
+// applyEmbedConfig configures the brain's embedding backend from config.
+func applyEmbedConfig(b *brain.FileBrain, cfg *config.Config) {
+	b.SetEmbedOptions(brain.EmbedOptions{
+		Provider:    brain.EmbedProvider(cfg.Brain.Embeddings.Provider),
+		OllamaURL:   cfg.Brain.Embeddings.Ollama.URL,
+		OllamaModel: cfg.Brain.Embeddings.Ollama.Model,
+	})
+}
+
 func buildRouter(cfg *config.Config) (*router.Router, *brain.FileBrain, provider.Provider, *session.Manager, error) {
 	// Brain
 	b := brain.New(cfg.Brain.Path)
+	applyEmbedConfig(b, cfg)
 
 	// Ensure brain directories exist
 	for _, dir := range brain.DefaultCategories {
@@ -79,6 +89,8 @@ func buildRouter(cfg *config.Config) (*router.Router, *brain.FileBrain, provider
 		prov = provider.NewClaude(apiKey, provCfg.Model, provCfg.BaseURL, timeout)
 	case "openai":
 		prov = provider.NewOpenAI(apiKey, provCfg.Model, provCfg.BaseURL, timeout)
+	case "gemini":
+		prov = provider.NewGemini(apiKey, provCfg.Model, provCfg.BaseURL, timeout)
 	default:
 		return nil, nil, nil, nil, fmt.Errorf("unsupported provider: %s", cfg.Provider)
 	}
@@ -94,7 +106,7 @@ func buildRouter(cfg *config.Config) (*router.Router, *brain.FileBrain, provider
 	ret := retriever.New(b, cfg.Brain.MaxContextFiles)
 
 	// Router
-	r := router.New(b, ret, prompt.NewBuilder(), prov, sessMgr)
+	r := router.New(b, ret, prompt.NewBuilder(cfg.AgentName(), cfg.UserName()), prov, sessMgr)
 
 	return r, b, prov, sessMgr, nil
 }
@@ -104,7 +116,7 @@ func runInteractiveChat(r *router.Router, sessMgr *session.Manager, cfg *config.
 	reader := bufio.NewReader(os.Stdin)
 	ctx := context.Background()
 
-	fmt.Println("kai — your digital twin")
+	fmt.Printf("%s — your digital twin\n", cfg.AgentName())
 	fmt.Println("Type /quit to exit, /brain to see context, /confidence for last confidence level")
 	fmt.Println()
 
@@ -163,7 +175,7 @@ func runInteractiveChat(r *router.Router, sessMgr *session.Manager, cfg *config.
 		}
 
 		lastResult = result
-		fmt.Printf("\nkai> %s\n\n", result.Response)
+		fmt.Printf("\n%s> %s\n\n", cfg.AgentName(), result.Response)
 	}
 
 	sessMgr.Save(sess)

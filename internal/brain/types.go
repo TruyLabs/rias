@@ -70,18 +70,23 @@ type Index struct {
 	Tags map[string][]string `json:"tags"`
 }
 
-// FullIndex stores an inverted index for full-text TF-IDF search.
+// FullIndex stores an inverted index for BM25 full-text search.
 type FullIndex struct {
-	Documents     map[string]DocEntry  `json:"documents"`
-	InvertedIndex map[string][]Posting `json:"inverted_index"`
-	TotalDocs     int                  `json:"total_docs"`
+	Documents      map[string]DocEntry   `json:"documents"`
+	Chunks         map[string]ChunkEntry `json:"chunks,omitempty"`
+	InvertedIndex  map[string][]Posting  `json:"inverted_index"`
+	TotalDocs      int                   `json:"total_docs"`
+	TotalChunks    int                   `json:"total_chunks,omitempty"`
+	AvgDocLength   float64               `json:"avg_doc_length"`
+	AvgChunkLength float64               `json:"avg_chunk_length,omitempty"`
 }
 
 // Posting records a term occurrence in a document field.
 type Posting struct {
 	Path      string `json:"path"`
 	Frequency int    `json:"frequency"`
-	Field     string `json:"field"` // "tag", "content", or "path"
+	Field     string `json:"field"`                // "tag", "content", or "path"
+	ChunkKey  string `json:"chunk_key,omitempty"`   // "path#N" for content postings; empty for tag/path
 }
 
 // DocEntry stores per-document metadata for the full index.
@@ -91,6 +96,25 @@ type DocEntry struct {
 	Tags        []string `json:"tags"`
 	Updated     string   `json:"updated"`
 	AccessCount int      `json:"access_count"`
+	ChunkCount  int      `json:"chunk_count,omitempty"`
+}
+
+// ChunkEntry stores metadata for a single chunk within a document.
+type ChunkEntry struct {
+	DocPath   string `json:"doc_path"`
+	ChunkID   int    `json:"chunk_id"`
+	WordCount int    `json:"word_count"`
+	Offset    int    `json:"offset"` // character offset into Content
+	Length    int    `json:"length"` // character length of chunk
+}
+
+// ChunkResult holds a chunk reference and its BM25 score.
+type ChunkResult struct {
+	DocPath string
+	ChunkID int
+	Score   float64
+	Offset  int
+	Length  int
 }
 
 // Reorganization action type constants.

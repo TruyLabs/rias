@@ -82,7 +82,7 @@ func setupTestServer(t *testing.T) (*Server, *brain.FileBrain) {
 	prov := &mockProvider{}
 	sessMgr := session.NewManager(sessDir)
 	ret := retriever.New(b, 10)
-	r := router.New(b, ret, prompt.NewBuilder(), prov, sessMgr)
+	r := router.New(b, ret, prompt.NewBuilder("kai", "TestUser"), prov, sessMgr)
 
 	cfg := &config.Config{
 		Provider: "mock",

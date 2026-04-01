@@ -1,16 +1,19 @@
 package cli
 
 import (
+	"encoding/csv"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/tinhvqbk/kai/internal/brain"
 	"github.com/tinhvqbk/kai/internal/config"
 	"github.com/spf13/cobra"
+	"github.com/xuri/excelize/v2"
 )
 
 const defaultEditor = "vi"
@@ -27,7 +30,7 @@ func newBrainCmd() *cobra.Command {
 			}
 
 			if len(files) == 0 {
-				fmt.Println("Brain is empty. Use 'kai teach' to start teaching.")
+				fmt.Printf("Brain is empty. Use '%s teach' to start teaching.\n", config.DefaultAgentName)
 				return nil
 			}
 
@@ -47,6 +50,7 @@ func newBrainCmd() *cobra.Command {
 
 	cmd.AddCommand(newBrainSearchCmd())
 	cmd.AddCommand(newBrainEditCmd())
+	cmd.AddCommand(newBrainImportCmd())
 	cmd.AddCommand(newBrainReorganizeCmd())
 	cmd.AddCommand(newSyncCmd())
 
@@ -149,6 +153,178 @@ func newBrainEditCmd() *cobra.Command {
 			return c.Run()
 		},
 	}
+}
+
+func newBrainImportCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "import [files...]",
+		Short: "Import .md, .csv, or .xlsx files into brain",
+		Long: `Import markdown, CSV, or Excel files into the brain as knowledge files.
+CSV and Excel files are automatically converted to markdown table format.
+You can optionally specify brain subdirectory and tags.
+
+Auto-tagging extracts meaningful keywords from file content.
+Auto-chunking breaks large files into semantic chunks for better search.`,
+		Args: cobra.MinimumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			category, _ := cmd.Flags().GetString("category")
+			tagsStr, _ := cmd.Flags().GetString("tags")
+			confidence, _ := cmd.Flags().GetString("confidence")
+			autoTag, _ := cmd.Flags().GetBool("auto-tag")
+			autoChunk, _ := cmd.Flags().GetBool("auto-chunk")
+
+			b := brain.New(getBrainPath())
+			var tags []string
+			if tagsStr != "" {
+				tags = strings.Split(tagsStr, ",")
+				for i := range tags {
+					tags[i] = strings.TrimSpace(tags[i])
+				}
+			}
+
+			imported := 0
+			for _, filePath := range args {
+				bf, err := importFile(filePath, category, tags, confidence, autoTag, autoChunk)
+				if err != nil {
+					fmt.Printf("Error importing %s: %v\n", filePath, err)
+					continue
+				}
+
+				if err := b.Save(bf); err != nil {
+					fmt.Printf("Error saving %s: %v\n", bf.Path, err)
+					continue
+				}
+
+				fmt.Printf("Imported: %s\n", bf.Path)
+				if autoTag && len(bf.Tags) > 0 {
+					fmt.Printf("  Tags: %s\n", strings.Join(bf.Tags, ", "))
+				}
+				imported++
+			}
+
+			if err := b.RebuildIndex(); err != nil {
+				return fmt.Errorf("rebuild index: %w", err)
+			}
+
+			fmt.Printf("\nSuccessfully imported %d file(s).\n", imported)
+			return nil
+		},
+	}
+
+	cmd.Flags().StringP("category", "c", "knowledge", "Brain subdirectory category")
+	cmd.Flags().StringP("tags", "t", "", "Comma-separated tags")
+	cmd.Flags().StringP("confidence", "C", "medium", "Confidence level: high, medium, or low")
+	cmd.Flags().BoolP("auto-tag", "a", false, "Auto-extract tags from content")
+	cmd.Flags().BoolP("auto-chunk", "k", false, "Auto-chunk large files for better search")
+
+	return cmd
+}
+
+
+func importFile(filePath string, category string, tags []string, confidence string, autoTag bool, autoChunk bool) (*brain.BrainFile, error) {
+	// Read the file
+	data, err := os.ReadFile(filePath)
+	if err != nil {
+		return nil, fmt.Errorf("read file: %w", err)
+	}
+
+	ext := strings.ToLower(filepath.Ext(filePath))
+	baseFileName := strings.TrimSuffix(filepath.Base(filePath), ext)
+
+	var content string
+	switch ext {
+	case ".md":
+		content = string(data)
+
+	case ".csv":
+		// Parse CSV and convert to markdown table
+		records, err := csv.NewReader(strings.NewReader(string(data))).ReadAll()
+		if err != nil {
+			return nil, fmt.Errorf("parse CSV: %w", err)
+		}
+
+		if len(records) == 0 {
+			return nil, fmt.Errorf("CSV is empty")
+		}
+
+		// Build markdown table with proper escaping
+		content = brain.BuildMarkdownTable(records)
+
+	case ".xlsx":
+		// Parse Excel file and convert to markdown tables
+		f, err := excelize.OpenFile(filePath)
+		if err != nil {
+			return nil, fmt.Errorf("open Excel file: %w", err)
+		}
+		defer f.Close()
+
+		sheetNames := f.GetSheetList()
+		if len(sheetNames) == 0 {
+			return nil, fmt.Errorf("Excel file has no sheets")
+		}
+
+		// Get all rows from all sheets
+		var buf strings.Builder
+		for i, sheetName := range sheetNames {
+			if i > 0 {
+				buf.WriteString("\n\n")
+			}
+			if len(sheetNames) > 1 {
+				buf.WriteString("## " + sheetName + "\n\n")
+			}
+
+			rows, err := f.GetRows(sheetName)
+			if err != nil {
+				return nil, fmt.Errorf("read sheet %s: %w", sheetName, err)
+			}
+
+			if len(rows) == 0 {
+				continue
+			}
+
+			// Build markdown table with proper escaping
+			if len(rows[0]) > 0 {
+				buf.WriteString(brain.BuildMarkdownTable(rows))
+			}
+		}
+		content = buf.String()
+
+	default:
+		return nil, fmt.Errorf("unsupported file type: %s (only .md, .csv, and .xlsx supported)", ext)
+	}
+
+	// Construct brain file path
+	brainPath := filepath.Join(category, baseFileName+".md")
+	brainPath = filepath.Clean(strings.ReplaceAll(brainPath, "\\", "/"))
+
+	// Auto-extract tags if enabled
+	finalTags := tags
+	if autoTag {
+		extractedTags := brain.ExtractTags(content)
+		// Merge extracted tags with provided tags
+		seen := make(map[string]bool)
+		for _, t := range tags {
+			seen[t] = true
+		}
+		for _, t := range extractedTags {
+			if !seen[t] {
+				finalTags = append(finalTags, t)
+				seen[t] = true
+			}
+		}
+	}
+
+	// Note: Auto-chunking is handled by the indexing system (RebuildIndex)
+	// when it analyzes the content. Files are automatically chunked during search indexing.
+
+	return &brain.BrainFile{
+		Path:       brainPath,
+		Content:    "\n" + strings.TrimSpace(content) + "\n",
+		Tags:       finalTags,
+		Confidence: confidence,
+		Source:     "imported:" + filepath.Base(filePath),
+		Updated:    brain.DateOnly{Time: time.Now()},
+	}, nil
 }
 
 func newBrainReorganizeCmd() *cobra.Command {

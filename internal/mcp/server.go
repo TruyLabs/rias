@@ -5,7 +5,7 @@ import (
 	"crypto/subtle"
 	"encoding/json"
 	"fmt"
-	"log"
+	"log/slog"
 	"net/http"
 	"sort"
 	"strings"
@@ -14,25 +14,26 @@ import (
 	kai "github.com/tinhvqbk/kai"
 	"github.com/tinhvqbk/kai/internal/brain"
 	"github.com/tinhvqbk/kai/internal/config"
+	"github.com/tinhvqbk/kai/internal/dashboard"
 	"github.com/tinhvqbk/kai/internal/prompt"
 	"github.com/tinhvqbk/kai/internal/provider"
-	"github.com/tinhvqbk/kai/internal/retriever"
 	"github.com/tinhvqbk/kai/internal/router"
 	"github.com/tinhvqbk/kai/internal/session"
-	"github.com/tinhvqbk/kai/internal/sheets"
+	bsync "github.com/tinhvqbk/kai/internal/sync"
 	mcplib "github.com/mark3labs/mcp-go/mcp"
 	mcpserver "github.com/mark3labs/mcp-go/server"
 )
 
 // Source labels for brain file provenance.
 const (
-	SourceMCP          = "mcp"
-	SourceDirect       = "direct"
-	SourceGoogleSheets = "google-sheets"
+	SourceMCP    = "mcp"
+	SourceDirect = "direct"
 )
 
 // DefaultConfidence is used when no confidence level is specified.
 const DefaultConfidence = "medium"
+
+const reindexDebounce = 2 * time.Second
 
 type Server struct {
 	mcp      *mcpserver.MCPServer
@@ -42,7 +43,7 @@ type Server struct {
 	provider provider.Provider
 	builder  *prompt.Builder
 	cfg      *config.Config
-	sheets   *sheets.Client
+	reindexCh chan struct{} // signals background full-index rebuild
 }
 
 func NewServer(
@@ -53,38 +54,68 @@ func NewServer(
 	cfg *config.Config,
 ) *Server {
 	s := &Server{
-		router:   r,
-		brain:    b,
-		sessions: sm,
-		provider: p,
-		builder:  prompt.NewBuilder(),
-		cfg:      cfg,
-	}
-
-	if cfg.Google.ServiceAccountPath != "" {
-		sc, err := sheets.NewClient(context.Background(), cfg.Google.ServiceAccountPath)
-		if err != nil {
-			log.Printf("WARNING: Google Sheets unavailable: %v", err)
-		} else {
-			s.sheets = sc
-		}
+		router:    r,
+		brain:     b,
+		sessions:  sm,
+		provider:  p,
+		builder:   prompt.NewBuilder(cfg.AgentName(), cfg.UserName()),
+		cfg:       cfg,
+		reindexCh: make(chan struct{}, 1),
 	}
 
 	s.mcp = mcpserver.NewMCPServer(
-		"kai",
+		cfg.AgentName(),
 		kai.Version,
 		mcpserver.WithToolCapabilities(false),
 	)
 
 	s.registerTools()
+	go s.reindexWorker()
 	return s
 }
+
+// reindexWorker runs in the background. It waits for a signal, debounces
+// rapid writes, then rebuilds the full BM25+vector index.
+func (s *Server) reindexWorker() {
+	for range s.reindexCh {
+		// Drain any extra signals queued during the debounce window.
+		timer := time.NewTimer(reindexDebounce)
+	drain:
+		for {
+			select {
+			case <-s.reindexCh:
+			case <-timer.C:
+				break drain
+			}
+		}
+		timer.Stop()
+
+		slog.Info("rebuilding full index in background")
+		if err := s.brain.RebuildIndex(); err != nil {
+			slog.Warn("background full index rebuild failed", "err", err)
+		} else {
+			slog.Info("background full index rebuild complete")
+		}
+	}
+}
+
+// triggerReindex sends a non-blocking signal to the background reindex worker.
+func (s *Server) triggerReindex() {
+	select {
+	case s.reindexCh <- struct{}{}:
+	default: // already queued, skip
+	}
+}
+
+// TriggerReindex is the public form, called from startup.
+func (s *Server) TriggerReindex() { s.triggerReindex() }
 
 func (s *Server) Serve() error {
 	return mcpserver.ServeStdio(s.mcp)
 }
 
 // ServeHTTP starts the MCP server over Streamable HTTP with bearer token auth.
+// Also mounts the dashboard at /dashboard (no auth required).
 func (s *Server) ServeHTTP(addr, token string) error {
 	httpServer := mcpserver.NewStreamableHTTPServer(s.mcp)
 	expected := []byte("Bearer " + token)
@@ -99,8 +130,45 @@ func (s *Server) ServeHTTP(addr, token string) error {
 		httpServer.ServeHTTP(w, r)
 	}))
 
-	log.Printf("MCP server listening on %s/mcp", addr)
+	// Mount dashboard at /dashboard.
+	dash := dashboard.New(s.brain, s.cfg.Brain.Path, s.cfg)
+	// Set router for dashboard chat.
+	if s.router != nil {
+		dash.SetRouter(s.router)
+		slog.Info("chat available in dashboard (LLM connected)")
+	}
+	// Build syncer for dashboard sync controls.
+	if syncer := s.buildSyncer(); syncer != nil {
+		dash.SetSyncer(syncer)
+		slog.Info("sync backends available for dashboard")
+	} else {
+		slog.Debug("no sync backends configured", "git_enabled", s.cfg.Brain.Sync.Git.Enabled)
+	}
+	dash.RegisterRoutes(mux)
+
+	slog.Info("MCP server listening", "addr", addr+"/mcp")
+	slog.Info("dashboard available", "addr", addr+"/")
+
+
 	return http.ListenAndServe(addr, mux)
+}
+
+// buildSyncer creates a Syncer from the current config.
+func (s *Server) buildSyncer() *bsync.Syncer {
+	brainPath := s.cfg.Brain.Path
+	if brainPath == "" {
+		brainPath = "."
+	}
+
+	var gitBackend bsync.Backend
+	if s.cfg.Brain.Sync.Git.Enabled {
+		gitBackend = bsync.NewGitBackend(brainPath, s.cfg.Brain.Sync.Git.Remote, s.cfg.Brain.Sync.Git.Branch)
+	}
+
+	if gitBackend == nil {
+		return nil
+	}
+	return bsync.NewSyncer(brainPath, gitBackend, nil)
 }
 
 func (s *Server) registerTools() {
@@ -209,33 +277,15 @@ func (s *Server) registerTools() {
 		),
 		s.handleBrainReorganize,
 	)
-
-	s.mcp.AddTool(
-		mcplib.NewTool("sheet_read",
-			mcplib.WithDescription("Read a Google Sheet and save it to brain. Returns markdown table. The sheet must be shared with the service account."),
-			mcplib.WithString("spreadsheet_id",
-				mcplib.Required(),
-				mcplib.Description("The spreadsheet ID from the Google Sheets URL"),
-			),
-			mcplib.WithString("range",
-				mcplib.Description("Optional A1 range (e.g. 'Sheet1!A1:D10'). Defaults to entire first sheet."),
-			),
-			mcplib.WithString("brain_path",
-				mcplib.Description("Optional brain path to save the data (e.g. 'data/my-sheet.md'). If omitted, data is returned but not saved."),
-			),
-			mcplib.WithString("tags",
-				mcplib.Description("Comma-separated tags for brain storage (e.g. 'bugs,tracking'). Used only when brain_path is set."),
-			),
-		),
-		s.handleSheetRead,
-	)
 }
 
 func (s *Server) handleBrainList(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
+	slog.Debug("brain_list: scanning files")
 	files, err := s.brain.ListAll()
 	if err != nil {
 		return mcplib.NewToolResultError(fmt.Sprintf("list brain files: %v", err)), nil
 	}
+	slog.Debug("brain_list: found files", "count", len(files))
 
 	type brainEntry struct {
 		Path       string   `json:"path"`
@@ -247,6 +297,7 @@ func (s *Server) handleBrainList(ctx context.Context, req mcplib.CallToolRequest
 	for _, f := range files {
 		bf, err := s.brain.Load(f)
 		if err != nil {
+			slog.Debug("brain_list: failed to load file", "path", f, "err", err)
 			continue
 		}
 		entries = append(entries, brainEntry{
@@ -255,6 +306,7 @@ func (s *Server) handleBrainList(ctx context.Context, req mcplib.CallToolRequest
 			Confidence: bf.Confidence,
 		})
 	}
+	slog.Debug("brain_list: returning entries", "count", len(entries))
 
 	if entries == nil {
 		entries = []brainEntry{}
@@ -287,15 +339,19 @@ func (s *Server) handleBrainSearch(ctx context.Context, req mcplib.CallToolReque
 	}
 	var candidates []candidate
 
+	slog.Debug("brain_search: querying", "query", query)
 	fullResults := s.brain.QueryFullIndex(query)
 	if len(fullResults) > 0 {
+		slog.Debug("brain_search: BM25 results", "count", len(fullResults))
 		for _, fr := range fullResults {
 			candidates = append(candidates, candidate{path: fr.Path, score: fr.Score})
 		}
 	} else {
 		// Fall back to tag-based search
 		keywords := strings.Fields(strings.ToLower(query))
+		slog.Debug("brain_search: BM25 empty, falling back to tag search", "keywords", keywords)
 		tagResults := s.brain.QueryIndex(keywords)
+		slog.Debug("brain_search: tag results", "count", len(tagResults))
 		for _, tr := range tagResults {
 			candidates = append(candidates, candidate{path: tr.Path, score: float64(tr.Score)})
 		}
@@ -344,16 +400,12 @@ func (s *Server) handleAsk(ctx context.Context, req mcplib.CallToolRequest) (*mc
 		return mcplib.NewToolResultError("missing required parameter: question"), nil
 	}
 
-	// With LLM: full pipeline
+	// With LLM: read-only ask (no learning extraction, no session)
 	if s.router != nil {
-		sess := s.sessions.New(s.cfg.Provider)
-
-		chatResult, err := s.router.Chat(ctx, sess, question)
+		result, err := s.router.Ask(ctx, question)
 		if err != nil {
-			return mcplib.NewToolResultError(fmt.Sprintf("chat error: %v", err)), nil
+			return mcplib.NewToolResultError(fmt.Sprintf("ask error: %v", err)), nil
 		}
-
-		s.sessions.Save(sess)
 
 		type askResponse struct {
 			Response       string   `json:"response"`
@@ -362,9 +414,9 @@ func (s *Server) handleAsk(ctx context.Context, req mcplib.CallToolRequest) (*mc
 		}
 
 		data, err := json.Marshal(askResponse{
-			Response:       chatResult.Response,
-			Confidence:     chatResult.Confidence,
-			BrainFilesUsed: chatResult.BrainFilesUsed,
+			Response:       result.Response,
+			Confidence:     result.Confidence,
+			BrainFilesUsed: result.BrainFilesUsed,
 		})
 		if err != nil {
 			return mcplib.NewToolResultError(fmt.Sprintf("marshal response: %v", err)), nil
@@ -373,36 +425,51 @@ func (s *Server) handleAsk(ctx context.Context, req mcplib.CallToolRequest) (*mc
 		return mcplib.NewToolResultText(string(data)), nil
 	}
 
-	// Without LLM: retrieve brain context and return it for the MCP client to use
-	ret := retriever.New(s.brain, s.cfg.Brain.MaxContextFiles)
-	brainFiles, err := ret.Retrieve(ctx, question, s.cfg.Brain.MaxContextFiles)
-	if err != nil {
-		return mcplib.NewToolResultError(fmt.Sprintf("retrieve brain context: %v", err)), nil
+	// Without LLM: search brain directly and return the top matched chunks as plain text.
+	const askMaxChunks = 3
+	chunks := s.brain.QueryHybrid(question)
+
+	var sb strings.Builder
+	seen := make(map[string]bool)
+	count := 0
+
+	for _, cr := range chunks {
+		if count >= askMaxChunks {
+			break
+		}
+		if seen[cr.DocPath] {
+			continue
+		}
+		seen[cr.DocPath] = true
+
+		bf, loadErr := s.brain.Load(cr.DocPath)
+		if loadErr != nil {
+			continue
+		}
+		content := strings.TrimSpace(bf.Content)
+		if cr.Offset < len(content) {
+			end := cr.Offset + cr.Length
+			if end > len(content) {
+				end = len(content)
+			}
+			content = strings.TrimSpace(content[cr.Offset:end])
+		}
+
+		if sb.Len() > 0 {
+			sb.WriteString("\n\n")
+		}
+		sb.WriteString("## ")
+		sb.WriteString(cr.DocPath)
+		sb.WriteString("\n")
+		sb.WriteString(content)
+		count++
 	}
 
-	systemPrompt := s.builder.BuildSystemPrompt(brainFiles)
-
-	var brainPaths []string
-	for _, bf := range brainFiles {
-		brainPaths = append(brainPaths, bf.Path)
+	if sb.Len() == 0 {
+		return mcplib.NewToolResultText("No relevant brain files found for: " + question), nil
 	}
 
-	type contextResponse struct {
-		SystemPrompt   string   `json:"system_prompt"`
-		BrainFilesUsed []string `json:"brain_files_used"`
-		Instruction    string   `json:"instruction"`
-	}
-
-	data, err := json.Marshal(contextResponse{
-		SystemPrompt:   systemPrompt,
-		BrainFilesUsed: brainPaths,
-		Instruction:    "Use the system_prompt as your personality and context to answer the user's question as their digital twin.",
-	})
-	if err != nil {
-		return mcplib.NewToolResultError(fmt.Sprintf("marshal response: %v", err)), nil
-	}
-
-	return mcplib.NewToolResultText(string(data)), nil
+	return mcplib.NewToolResultText(sb.String()), nil
 }
 
 func (s *Server) handleBrainRead(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
@@ -410,6 +477,7 @@ func (s *Server) handleBrainRead(ctx context.Context, req mcplib.CallToolRequest
 	if err != nil {
 		return mcplib.NewToolResultError("missing required parameter: path"), nil
 	}
+	slog.Debug("brain_read", "path", path)
 
 	bf, err := s.brain.Load(path)
 	if err != nil {
@@ -441,6 +509,9 @@ func (s *Server) handleBrainWrite(ctx context.Context, req mcplib.CallToolReques
 	if err != nil {
 		return mcplib.NewToolResultError("missing required parameter: path"), nil
 	}
+	if !strings.HasSuffix(path, ".md") {
+		path = path + ".md"
+	}
 
 	content, err := req.RequireString("content")
 	if err != nil {
@@ -465,6 +536,7 @@ func (s *Server) handleBrainWrite(ctx context.Context, req mcplib.CallToolReques
 		}
 	}
 
+	slog.Debug("brain_write", "path", path, "tags", tags, "confidence", confidence)
 	bf := &brain.BrainFile{
 		Path:       path,
 		Tags:       tags,
@@ -477,82 +549,13 @@ func (s *Server) handleBrainWrite(ctx context.Context, req mcplib.CallToolReques
 	if err := s.brain.Save(bf); err != nil {
 		return mcplib.NewToolResultError(fmt.Sprintf("save brain file: %v", err)), nil
 	}
-	if err := s.brain.RebuildIndex(); err != nil {
-		log.Printf("WARNING: rebuild brain index: %v", err)
+	slog.Debug("brain_write: file saved, rebuilding tag index", "path", path)
+	if err := s.brain.RebuildTagIndex(); err != nil {
+		slog.Warn("rebuild tag index failed", "err", err)
 	}
+	s.triggerReindex()
 
 	return mcplib.NewToolResultText(fmt.Sprintf("Saved %s", path)), nil
-}
-
-func (s *Server) handleSheetRead(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
-	if s.sheets == nil {
-		return mcplib.NewToolResultError("Google Sheets not configured — set google.service_account_path in config.yaml"), nil
-	}
-
-	spreadsheetID, err := req.RequireString("spreadsheet_id")
-	if err != nil {
-		return mcplib.NewToolResultError("missing required parameter: spreadsheet_id"), nil
-	}
-
-	readRange, _ := req.RequireString("range")
-	brainPath, _ := req.RequireString("brain_path")
-	tagsStr, _ := req.RequireString("tags")
-
-	result, err := s.sheets.Read(ctx, spreadsheetID, readRange)
-	if err != nil {
-		return mcplib.NewToolResultError(fmt.Sprintf("read sheet: %v", err)), nil
-	}
-
-	// Save to brain if path provided.
-	if brainPath != "" {
-		tags := []string{SourceGoogleSheets}
-		if tagsStr != "" {
-			for _, t := range strings.Split(tagsStr, ",") {
-				tags = append(tags, strings.TrimSpace(t))
-			}
-		}
-
-		content := fmt.Sprintf("# %s\n\nSource: Google Sheet `%s` range `%s`\n\n%s",
-			result.Title, spreadsheetID, result.Range, result.Markdown)
-
-		bf := &brain.BrainFile{
-			Path:       brainPath,
-			Tags:       tags,
-			Confidence: "high",
-			Source:     SourceGoogleSheets,
-			Updated:    brain.DateOnly{Time: time.Now()},
-			Content:    "\n" + content + "\n",
-		}
-
-		if err := s.brain.Save(bf); err != nil {
-			return mcplib.NewToolResultError(fmt.Sprintf("save to brain: %v", err)), nil
-		}
-		if err := s.brain.RebuildIndex(); err != nil {
-		log.Printf("WARNING: rebuild brain index: %v", err)
-	}
-	}
-
-	// Return response.
-	type sheetResponse struct {
-		Title     string `json:"title"`
-		Range     string `json:"range"`
-		RowCount  int    `json:"row_count"`
-		BrainPath string `json:"brain_path,omitempty"`
-		Markdown  string `json:"markdown"`
-	}
-
-	data, err := json.Marshal(sheetResponse{
-		Title:     result.Title,
-		Range:     result.Range,
-		RowCount:  len(result.Rows),
-		BrainPath: brainPath,
-		Markdown:  result.Markdown,
-	})
-	if err != nil {
-		return mcplib.NewToolResultError(fmt.Sprintf("marshal response: %v", err)), nil
-	}
-
-	return mcplib.NewToolResultText(string(data)), nil
 }
 
 func (s *Server) handleBrainReorganize(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
@@ -605,6 +608,11 @@ func (s *Server) handleBrainReorganize(ctx context.Context, req mcplib.CallToolR
 		return mcplib.NewToolResultError(fmt.Sprintf("marshal response: %v", err)), nil
 	}
 
+	// Trigger reindex after reorganization applies changes (debounced, non-blocking).
+	if apply && len(actions) > 0 {
+		s.triggerReindex()
+	}
+
 	return mcplib.NewToolResultText(string(data)), nil
 }
 
@@ -653,9 +661,10 @@ func (s *Server) handleTeach(ctx context.Context, req mcplib.CallToolRequest) (*
 	if err := s.brain.Learn(learnings); err != nil {
 		return mcplib.NewToolResultError(fmt.Sprintf("save learnings: %v", err)), nil
 	}
-	if err := s.brain.RebuildIndex(); err != nil {
-		log.Printf("WARNING: rebuild brain index: %v", err)
+	if err := s.brain.RebuildTagIndex(); err != nil {
+		slog.Warn("rebuild tag index failed", "err", err)
 	}
+	s.triggerReindex()
 
 	var sb strings.Builder
 	sb.WriteString(fmt.Sprintf("Learned %d new things:\n", len(learnings)))
@@ -701,9 +710,10 @@ func (s *Server) handleTeachDirect(category, topic, content string, req mcplib.C
 	if err := s.brain.Learn(learnings); err != nil {
 		return mcplib.NewToolResultError(fmt.Sprintf("save learning: %v", err)), nil
 	}
-	if err := s.brain.RebuildIndex(); err != nil {
-		log.Printf("WARNING: rebuild brain index: %v", err)
+	if err := s.brain.RebuildTagIndex(); err != nil {
+		slog.Warn("rebuild tag index failed", "err", err)
 	}
+	s.triggerReindex()
 
 	return mcplib.NewToolResultText(fmt.Sprintf("Saved to brain/%s/%s.md", category, topic)), nil
 }

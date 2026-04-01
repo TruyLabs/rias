@@ -13,15 +13,37 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// EmbedProvider specifies which embedding backend to use.
+type EmbedProvider string
+
+const (
+	EmbedAuto   EmbedProvider = ""       // Try ollama, fall back to LSI.
+	EmbedOllama EmbedProvider = "ollama" // Use Ollama embedding model.
+	EmbedLSI    EmbedProvider = "lsi"    // Use LSI (corpus-derived, no external deps).
+)
+
+// EmbedOptions holds embedding configuration for the brain.
+type EmbedOptions struct {
+	Provider  EmbedProvider
+	OllamaURL   string
+	OllamaModel string
+}
+
 // FileBrain is the file-based Brain implementation.
 type FileBrain struct {
-	root string
-	mu   sync.RWMutex
+	root  string
+	mu    sync.RWMutex
+	embed EmbedOptions
 }
 
 // New creates a new FileBrain rooted at the given directory.
 func New(root string) *FileBrain {
 	return &FileBrain{root: root}
+}
+
+// SetEmbedOptions configures the embedding backend.
+func (b *FileBrain) SetEmbedOptions(opts EmbedOptions) {
+	b.embed = opts
 }
 
 // safePath validates that relPath stays within the brain root directory.

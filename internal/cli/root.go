@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	kai "github.com/tinhvqbk/kai"
+	"github.com/tinhvqbk/kai/internal/config"
 	"github.com/spf13/cobra"
 )
 
@@ -14,9 +15,9 @@ var cfgFile string
 // NewRootCmd creates the root cobra command.
 func NewRootCmd() *cobra.Command {
 	root := &cobra.Command{
-		Use:   "kai",
+		Use:   config.DefaultAgentName,
 		Short: "Your digital twin — an AI agent that thinks like you",
-		Long:  "kai is a CLI-based AI agent that acts as your digital twin. It learns about you through conversations and can answer questions, make decisions, and write code the way you would.",
+		Long:  config.DefaultAgentName + " is a CLI-based AI agent that acts as your digital twin. It learns about you through conversations and can answer questions, make decisions, and write code the way you would.",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runChat(cmd, args)
 		},
@@ -31,6 +32,9 @@ func NewRootCmd() *cobra.Command {
 	root.AddCommand(newTeachCmd())
 	root.AddCommand(newMcpCmd())
 	root.AddCommand(newSetupCmd())
+	root.AddCommand(newDashboardCmd())
+	root.AddCommand(newSyncCmd())
+	root.AddCommand(newReindexCmd())
 
 	return root
 }
@@ -40,7 +44,7 @@ func newVersionCmd() *cobra.Command {
 		Use:   "version",
 		Short: "Print version",
 		Run: func(cmd *cobra.Command, args []string) {
-			fmt.Printf("kai %s (commit: %s, built: %s)\n", kai.Version, kai.Commit, kai.BuildDate)
+			fmt.Printf("%s %s (commit: %s, built: %s)\n", config.DefaultAgentName, kai.Version, kai.Commit, kai.BuildDate)
 		},
 	}
 }

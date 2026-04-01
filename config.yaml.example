@@ -1,3 +1,7 @@
+agent:
+  name: kai           # Display name for the AI agent
+  user_name: Kyle     # Your name — used in prompts and learning extraction
+
 provider: claude
 providers:
   claude:
@@ -12,20 +16,18 @@ providers:
     # timeout_sec: 120                     # optional: HTTP timeout (default: 120)
 brain:
   path: ./brain
-  max_context_files: 10
+  max_context_files: 5
+  embeddings:
+    provider: ""  # "ollama", "lsi", or "" (auto: tries ollama, falls back to lsi)
+    ollama:
+      url: http://localhost:11434    # Ollama API URL
+      model: nomic-embed-text       # Embedding model (also: mxbai-embed-large, all-minilm)
   sync:
     git:
       enabled: false
       # remote: git@github.com:user/kai-brain.git  # optional: push/pull to remote
       # branch: main                                # default: main
-    cloud:
-      backend: ""  # "gdrive" or "vercel_blob" (empty = disabled)
-      gdrive:
-        folder_id: ""  # Google Drive folder ID for brain backup
-      vercel_blob:
-        token: "${VERCEL_BLOB_TOKEN}"  # Vercel Blob read-write token
 sessions_path: ./sessions
 server:
   listen_addr: 0.0.0.0:8080
-google:
-  service_account_path: # path to service account JSON (e.g. ./service-account.json)
+  dashboard_pin: ""  # PIN lock for dashboard (empty = no auth)

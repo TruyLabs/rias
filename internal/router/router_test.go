@@ -50,7 +50,7 @@ func TestRouterChat(t *testing.T) {
 	r := New(
 		b,
 		retriever.New(b, 10),
-		prompt.NewBuilder(),
+		prompt.NewBuilder("kai", "TestUser"),
 		&mockProvider{},
 		sessMgr,
 	)

@@ -3,6 +3,7 @@ package sync
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -115,4 +116,23 @@ func (s *Syncer) StatusAll(ctx context.Context) (gitStatus, cloudStatus *Status,
 // HasBackends returns true if at least one backend is configured.
 func (s *Syncer) HasBackends() bool {
 	return s.git != nil || s.cloud != nil
+}
+
+// skipPaths are directories/files excluded from cloud sync.
+var skipPrefixes = []string{".trash/", ".trash\\"}
+var skipFiles = map[string]bool{
+	".gitignore":        true,
+	".DS_Store":         true,
+	"index_full.json.gz": true,
+	"vectors.bin.gz":     true,
+}
+
+// shouldSkipSync returns true if a relative path should be excluded from sync.
+func shouldSkipSync(rel string) bool {
+	for _, prefix := range skipPrefixes {
+		if strings.HasPrefix(rel, prefix) {
+			return true
+		}
+	}
+	return skipFiles[rel]
 }

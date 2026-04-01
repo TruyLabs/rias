@@ -12,6 +12,8 @@ import (
 // brainGitIgnore lists files excluded from brain git sync (derived data).
 const brainGitIgnore = `index.json
 index_full.json
+index_full.json.gz
+vectors.bin.gz
 `
 
 // GitBackend syncs the brain directory using a nested git repository.
