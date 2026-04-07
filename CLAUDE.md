@@ -42,7 +42,7 @@ internal/
 
 ## Brain Structure
 
-Brain files are markdown with YAML frontmatter in `./brain/`:
+Brain files are markdown with YAML frontmatter in `~/.kai/brain/` (default, configurable via `brain.path`):
 ```
 brain/
   identity/   # Personal info, background

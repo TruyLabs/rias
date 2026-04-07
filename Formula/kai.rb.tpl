@@ -20,10 +20,26 @@ class Kai < Formula
       url "https://github.com/norenis/kai/releases/download/v#{version}/kai-linux-amd64.tar.gz"
       sha256 "$LINUX_AMD64_SHA256"
     end
+    on_arm do
+      url "https://github.com/norenis/kai/releases/download/v#{version}/kai-linux-arm64.tar.gz"
+      sha256 "$LINUX_ARM64_SHA256"
+    end
   end
 
   def install
     bin.install "kai"
+  end
+
+  def caveats
+    <<~EOS
+      To get started, initialize your ~/.kai directory and register as an MCP server:
+        kai setup
+
+      Then set your API key:
+        kai auth set-key --provider claude
+
+      Run `kai --help` for all available commands.
+    EOS
   end
 
   test do

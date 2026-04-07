@@ -148,9 +148,9 @@ func buildSyncer() (*bsync.Syncer, error) {
 		cfg = config.Defaults()
 	}
 
-	brainPath := cfg.Brain.Path
+	brainPath := config.ExpandPath(cfg.Brain.Path)
 	if brainPath == "" {
-		brainPath = config.DefaultBrainPath
+		brainPath = config.ExpandPath(config.DefaultBrainPath)
 	}
 
 	var gitBackend bsync.Backend

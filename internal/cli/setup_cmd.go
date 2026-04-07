@@ -47,15 +47,24 @@ func runSetup(useLocal bool) error {
 		return err
 	}
 
+	kaiDir := filepath.Join(homeDir, "."+agentName)
+
 	// Step 1: Create brain directory.
-	brainPath := filepath.Join(homeDir, "."+agentName, "brain")
+	brainPath := filepath.Join(kaiDir, "brain")
 	for _, cat := range brain.DefaultCategories {
 		dir := filepath.Join(brainPath, cat)
 		if err := os.MkdirAll(dir, 0755); err != nil {
 			return fmt.Errorf("create brain dir: %w", err)
 		}
 	}
-	fmt.Printf("  Brain: %s\n", brainPath)
+	fmt.Printf("  Brain:    %s\n", brainPath)
+
+	// Step 1b: Create sessions directory.
+	sessionsPath := filepath.Join(kaiDir, "sessions")
+	if err := os.MkdirAll(sessionsPath, 0755); err != nil {
+		return fmt.Errorf("create sessions dir: %w", err)
+	}
+	fmt.Printf("  Sessions: %s\n", sessionsPath)
 
 	// Step 2: Create default config if not exists.
 	configPath := filepath.Join(homeDir, "."+agentName, "config.yaml")
@@ -68,7 +77,7 @@ brain:
   path: %s
   max_context_files: 5
 sessions_path: %s
-`, agentName, agentName, config.DefaultUserName, brainPath, filepath.Join(homeDir, "."+agentName, "sessions"))
+`, agentName, agentName, config.DefaultUserName, brainPath, sessionsPath)
 		if err := os.WriteFile(configPath, []byte(defaultConfig), 0644); err != nil {
 			return fmt.Errorf("write config: %w", err)
 		}

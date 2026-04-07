@@ -26,9 +26,9 @@ func newDashboardCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			brainPath := cfg.Brain.Path
+			brainPath := config.ExpandPath(cfg.Brain.Path)
 			if brainPath == "" {
-				brainPath = config.DefaultBrainPath
+				brainPath = config.ExpandPath(config.DefaultBrainPath)
 			}
 
 			// Pick a random available port if not specified.

@@ -460,10 +460,10 @@ func printReorgPlan(plan *brain.ReorgPlan, applied bool) {
 func getBrainPath() string {
 	cfg, err := loadConfig()
 	if err != nil {
-		return config.DefaultBrainPath
+		return config.ExpandPath(config.DefaultBrainPath)
 	}
 	if cfg.Brain.Path != "" {
-		return cfg.Brain.Path
+		return config.ExpandPath(cfg.Brain.Path)
 	}
-	return config.DefaultBrainPath
+	return config.ExpandPath(config.DefaultBrainPath)
 }
