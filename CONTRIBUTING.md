@@ -5,9 +5,9 @@
 ```bash
 git clone https://github.com/norenis/kai.git
 cd kai
-cp config.yaml.example config.yaml
-# Edit config.yaml with your API key and provider
 make build
+./kai setup          # creates ~/.kai/brain, ~/.kai/sessions, ~/.kai/config.yaml
+./kai auth set-key --provider claude
 ./kai version
 ```
 

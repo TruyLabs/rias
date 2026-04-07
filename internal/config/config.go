@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 
@@ -12,12 +13,24 @@ import (
 // Default configuration values.
 const (
 	DefaultConfigFile      = "config.yaml"
-	DefaultBrainPath       = "./brain"
-	DefaultSessionsPath    = "./sessions"
+	DefaultBrainPath       = "~/.kai/brain"
+	DefaultSessionsPath    = "~/.kai/sessions"
 	DefaultMaxContextFiles = 5
 	DefaultListenAddr      = "0.0.0.0:8080"
 	DefaultProviderTimeout = 120 // seconds
 )
+
+// ExpandPath expands a leading ~ to the user's home directory.
+func ExpandPath(path string) string {
+	if path == "~" || strings.HasPrefix(path, "~/") {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return path
+		}
+		return filepath.Join(home, path[1:])
+	}
+	return path
+}
 
 // Default agent identity values.
 const (
@@ -126,10 +139,10 @@ func Defaults() *Config {
 			UserName: DefaultUserName,
 		},
 		Brain: BrainConfig{
-			Path:            DefaultBrainPath,
+			Path:            ExpandPath(DefaultBrainPath),
 			MaxContextFiles: DefaultMaxContextFiles,
 		},
-		SessionsPath: DefaultSessionsPath,
+		SessionsPath: ExpandPath(DefaultSessionsPath),
 		Server: ServerConfig{
 			ListenAddr: DefaultListenAddr,
 		},

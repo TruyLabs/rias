@@ -19,6 +19,10 @@ RUN apk add --no-cache ca-certificates
 
 COPY --from=builder /kai /usr/local/bin/kai
 
-WORKDIR /app
+# Brain and sessions are stored in ~/.kai (i.e. /root/.kai in this container).
+# Mount volumes here to persist data across container restarts.
+VOLUME ["/root/.kai/brain", "/root/.kai/sessions"]
+
+WORKDIR /root/.kai
 
 ENTRYPOINT ["kai"]

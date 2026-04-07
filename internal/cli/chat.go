@@ -28,7 +28,16 @@ const (
 func loadConfig() (*config.Config, error) {
 	path := cfgFile
 	if path == "" {
-		path = config.DefaultConfigFile
+		// Search order:
+		//   1. ./config.yaml  (local / dev override)
+		//   2. ~/.kai/config.yaml  (installed default, created by `kai setup`)
+		if _, err := os.Stat(config.DefaultConfigFile); err == nil {
+			path = config.DefaultConfigFile
+		} else if home, err := os.UserHomeDir(); err == nil {
+			path = filepath.Join(home, "."+config.DefaultAgentName, "config.yaml")
+		} else {
+			path = config.DefaultConfigFile
+		}
 	}
 	return config.Load(path)
 }
@@ -96,9 +105,9 @@ func buildRouter(cfg *config.Config) (*router.Router, *brain.FileBrain, provider
 	}
 
 	// Sessions
-	sessPath := cfg.SessionsPath
+	sessPath := config.ExpandPath(cfg.SessionsPath)
 	if sessPath == "" {
-		sessPath = config.DefaultSessionsPath
+		sessPath = config.ExpandPath(config.DefaultSessionsPath)
 	}
 	sessMgr := session.NewManager(sessPath)
 

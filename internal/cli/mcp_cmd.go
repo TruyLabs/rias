@@ -48,9 +48,9 @@ func newMcpCmd() *cobra.Command {
 				}
 			}
 
-			sessPath := cfg.SessionsPath
+			sessPath := config.ExpandPath(cfg.SessionsPath)
 			if sessPath == "" {
-				sessPath = config.DefaultSessionsPath
+				sessPath = config.ExpandPath(config.DefaultSessionsPath)
 			}
 			sessMgr := session.NewManager(sessPath)
 

@@ -1,0 +1,76 @@
+name: Update Homebrew Tap
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version tag (e.g., v1.2.3)"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  update-tap:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout main repo (for formula template)
+        uses: actions/checkout@v4
+
+      - name: Fetch release checksums
+        id: checksums
+        env:
+          VERSION: ${{ inputs.version }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          sha256_for() {
+            local asset="kai-${1}.tar.gz"
+            gh release download "$VERSION" \
+              --repo norenis/kai \
+              --pattern "$asset" \
+              --dir /tmp/tarballs 2>/dev/null || { echo ""; return; }
+            sha256sum "/tmp/tarballs/$asset" | cut -d' ' -f1
+          }
+
+          mkdir -p /tmp/tarballs
+          echo "darwin_arm64=$(sha256_for darwin-arm64)" >> $GITHUB_OUTPUT
+          echo "darwin_amd64=$(sha256_for darwin-amd64)"  >> $GITHUB_OUTPUT
+          echo "linux_amd64=$(sha256_for linux-amd64)"    >> $GITHUB_OUTPUT
+          echo "linux_arm64=$(sha256_for linux-arm64)"    >> $GITHUB_OUTPUT
+
+      - name: Checkout tap repo
+        uses: actions/checkout@v4
+        with:
+          repository: norenis/homebrew-kai
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          path: tap
+
+      - name: Update and push formula
+        env:
+          VERSION_NUM: ${{ inputs.version }}
+          DARWIN_ARM64_SHA256: ${{ steps.checksums.outputs.darwin_arm64 }}
+          DARWIN_AMD64_SHA256:  ${{ steps.checksums.outputs.darwin_amd64 }}
+          LINUX_AMD64_SHA256:   ${{ steps.checksums.outputs.linux_amd64 }}
+          LINUX_ARM64_SHA256:   ${{ steps.checksums.outputs.linux_arm64 }}
+        run: |
+          cd tap
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          git pull --rebase origin HEAD
+
+          export VERSION_NUM="${VERSION_NUM#v}"
+          mkdir -p Formula
+          envsubst '$VERSION_NUM $DARWIN_ARM64_SHA256 $DARWIN_AMD64_SHA256 $LINUX_AMD64_SHA256 $LINUX_ARM64_SHA256' \
+            < ../Formula/kai.rb.tpl \
+            > Formula/kai.rb
+
+          git add Formula/kai.rb
+          if git diff --staged --quiet; then
+            echo "Formula unchanged — nothing to push"
+            exit 0
+          fi
+          git commit -m "Update kai to ${{ inputs.version }}"
+          git push

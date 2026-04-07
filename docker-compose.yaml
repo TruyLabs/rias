@@ -8,10 +8,12 @@ services:
     ports:
       - "8080:8080"
     volumes:
-      - kai-brain:/app/brain
-      - kai-sessions:/app/sessions
-      - ./config.yaml:/app/config.yaml:ro
+      - kai-brain:/root/.kai/brain
+      - kai-sessions:/root/.kai/sessions
+      # Mount your config.yaml with API keys and provider settings:
+      # - ./config.yaml:/root/.kai/config.yaml:ro
     environment:
+      # Generate with: openssl rand -hex 32
       - KAI_MCP_TOKEN=${KAI_MCP_TOKEN}
     command: ["mcp", "--transport", "http", "--addr", "0.0.0.0:8080"]
     restart: unless-stopped

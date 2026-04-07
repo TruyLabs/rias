@@ -45,6 +45,7 @@ func newVersionCmd() *cobra.Command {
 		Short: "Print version",
 		Run: func(cmd *cobra.Command, args []string) {
 			fmt.Printf("%s %s (commit: %s, built: %s)\n", config.DefaultAgentName, kai.Version, kai.Commit, kai.BuildDate)
+			go checkForUpdate()
 		},
 	}
 }
@@ -70,6 +71,7 @@ func newAskCmd() *cobra.Command {
 }
 
 func runChat(cmd *cobra.Command, args []string) error {
+	go checkForUpdate()
 	cfg, err := loadConfig()
 	if err != nil {
 		return err

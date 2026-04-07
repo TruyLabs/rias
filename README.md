@@ -13,9 +13,8 @@
 
 ## 🚀 Demo
 
-![Demo GIF](https://via.placeholder.com/800x400?text=KAI+Demo+Coming+Soon)
+<img width="800" height="400" alt="image" src="https://github.com/user-attachments/assets/474d9684-e570-48fb-9173-d42b9adebd4f" />
 
-> Replace this with a real GIF showing: teach → ask → answer
 
 ---
 
@@ -53,9 +52,9 @@ kai ask "How should I design this system?"
 ```bash
 brew tap norenis/kai && brew install kai
 
-kai auth set-key --provider claude
-kai setup        # registers as MCP server for Claude Code
-kai              # start chatting
+kai setup                          # creates ~/.kai/, generates config, registers MCP server
+kai auth set-key --provider claude # save your API key
+kai                                # start chatting
 ```
 
 ---
@@ -77,25 +76,137 @@ Brain files are markdown with YAML frontmatter. KAI appends to them as it learns
 
 ## 🛠 Configuration
 
-Copy the example config and set your provider:
+### Config file location
+
+kai looks for config in this order:
+
+1. `--config <path>` flag (any command)
+2. `./config.yaml` in the current directory (local/dev override)
+3. `~/.kai/config.yaml` ← **created automatically by `kai setup`**
+
+### Quick provider setup
 
 ```bash
-cp config.yaml.example config.yaml
+kai setup                            # generates ~/.kai/config.yaml
+kai auth set-key --provider claude   # stores key in ~/.kai/credentials.json
+kai auth status                      # verify all configured providers
 ```
+
+### Switching providers
+
+Edit `~/.kai/config.yaml` and change the `provider:` line:
 
 ```yaml
-# config.yaml
-provider: claude          # claude | openai | gemini | ollama
-brain:
-  path: ./brain
-  max_context_files: 5
+provider: openai   # claude | openai | gemini | ollama
 ```
 
-Set your API key:
+### Provider configuration
+
+<details>
+<summary><strong>Claude (Anthropic)</strong></summary>
+
+```yaml
+provider: claude
+providers:
+  claude:
+    auth: api_key
+    model: claude-sonnet-4-6-20250514
+```
 
 ```bash
 kai auth set-key --provider claude
-kai auth status            # verify
+# Paste your key from https://console.anthropic.com
+```
+</details>
+
+<details>
+<summary><strong>OpenAI</strong></summary>
+
+```yaml
+provider: openai
+providers:
+  openai:
+    auth: api_key
+    model: gpt-4o
+```
+
+```bash
+kai auth set-key --provider openai
+# Paste your key from https://platform.openai.com
+```
+</details>
+
+<details>
+<summary><strong>Gemini (Google)</strong></summary>
+
+```yaml
+provider: gemini
+providers:
+  gemini:
+    auth: api_key
+    model: gemini-1.5-pro
+```
+
+```bash
+kai auth set-key --provider gemini
+# Paste your key from https://aistudio.google.com
+```
+</details>
+
+<details>
+<summary><strong>Ollama (local, no API key)</strong></summary>
+
+```yaml
+provider: openai
+providers:
+  openai:
+    base_url: http://localhost:11434/v1
+    model: llama3
+```
+
+No API key needed. Start Ollama first: `ollama serve`
+</details>
+
+### Full config reference
+
+```yaml
+agent:
+  name: kai           # display name shown in chat
+  user_name: Kyle     # your name — used in prompts and learning
+
+provider: claude      # active provider: claude | openai | gemini | ollama
+
+providers:
+  claude:
+    auth: api_key
+    model: claude-sonnet-4-6-20250514
+    # base_url: https://api.anthropic.com   # optional: custom endpoint
+    # timeout_sec: 120
+  openai:
+    auth: api_key
+    model: gpt-4o
+    # base_url: https://api.openai.com      # optional: change for Ollama etc.
+    # timeout_sec: 120
+
+brain:
+  path: ~/.kai/brain          # where brain files are stored
+  max_context_files: 5        # how many brain files to inject per query
+  embeddings:
+    provider: ""              # "lsi" (built-in) | "ollama" | "" (auto)
+    ollama:
+      url: http://localhost:11434
+      model: nomic-embed-text
+  sync:
+    git:
+      enabled: false
+      remote: git@github.com:you/kai-brain.git
+      branch: main
+
+sessions_path: ~/.kai/sessions
+
+server:
+  listen_addr: 0.0.0.0:8080
+  dashboard_pin: ""           # set a PIN to protect the dashboard
 ```
 
 ---
@@ -132,6 +243,16 @@ git clone https://github.com/norenis/kai
 cd kai
 make install
 ```
+
+### After installation
+
+Initialize your `~/.kai/` directory and register as an MCP server:
+
+```bash
+kai setup
+```
+
+This creates `~/.kai/brain/`, `~/.kai/sessions/`, a default `~/.kai/config.yaml`, and registers kai in `~/.mcp.json` for Claude Code.
 
 ---
 
