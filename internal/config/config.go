@@ -46,6 +46,14 @@ type Config struct {
 	Brain        BrainConfig               `yaml:"brain"`
 	SessionsPath string                    `yaml:"sessions_path"`
 	Server       ServerConfig              `yaml:"server"`
+	Modules      []ModuleItemConfig        `yaml:"modules"`
+}
+
+// ModuleItemConfig holds the config for a single installable module.
+type ModuleItemConfig struct {
+	Name    string                 `yaml:"name"`
+	Enabled bool                   `yaml:"enabled"`
+	Config  map[string]interface{} `yaml:"config"`
 }
 
 // AgentConfig holds the agent and user identity.

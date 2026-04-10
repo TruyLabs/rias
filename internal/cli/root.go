@@ -35,6 +35,7 @@ func NewRootCmd() *cobra.Command {
 	root.AddCommand(newDashboardCmd())
 	root.AddCommand(newSyncCmd())
 	root.AddCommand(newReindexCmd())
+	root.AddCommand(newModuleCmd())
 
 	return root
 }
@@ -76,11 +77,11 @@ func runChat(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	r, _, _, sessMgr, err := buildRouter(cfg)
+	r, b, _, sessMgr, err := buildRouter(cfg)
 	if err != nil {
 		return err
 	}
-	return runInteractiveChat(r, sessMgr, cfg)
+	return runInteractiveChat(r, b, sessMgr, cfg)
 }
 
 // Execute runs the root command.

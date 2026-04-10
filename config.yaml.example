@@ -31,3 +31,25 @@ sessions_path: ~/.kai/sessions
 server:
   listen_addr: 0.0.0.0:8080
   dashboard_pin: ""  # PIN lock for dashboard (empty = no auth)
+
+# Modules pull external data into the brain on demand via 'kai module run'.
+# Run 'kai module list' to see all available modules.
+# Note: ${ENV_VAR} references must be set in your environment before running kai.
+modules:
+  - name: github_prs
+    enabled: false
+    config:
+      token: ${GITHUB_TOKEN}        # GitHub personal access token
+      repos:
+        - owner/repo               # list of owner/repo to fetch PRs from
+      state: open                  # open | closed | all (default: open)
+      limit: 20                    # max PRs per repo (default: 20)
+
+  - name: google_sheets
+    enabled: false
+    config:
+      api_key: ${GOOGLE_API_KEY}   # Google API key (sheet must be publicly accessible)
+      spreadsheet_id: ""           # ID from the sheet URL
+      range: "Sheet1!A:Z"          # cell range to read (default: Sheet1!A:Z)
+      category: knowledge          # brain category: knowledge | decisions | identity | opinions | style
+      topic: my-sheet              # brain file slug (used as filename)
