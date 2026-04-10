@@ -22,6 +22,8 @@ const (
 	MinMessagesForLearning    = 2
 )
 
+const reindexDebounce = 2 * time.Second
+
 // Confidence level labels.
 const (
 	ConfidenceHigh   = "high"
@@ -43,6 +45,7 @@ type Router struct {
 	builder   *prompt.Builder
 	provider  provider.Provider
 	sessions  *session.Manager
+	reindexCh chan struct{}
 }
 
 // New creates a Router.
@@ -53,12 +56,46 @@ func New(
 	p provider.Provider,
 	sm *session.Manager,
 ) *Router {
-	return &Router{
+	rt := &Router{
 		brain:     b,
 		retriever: r,
 		builder:   pb,
 		provider:  p,
 		sessions:  sm,
+		reindexCh: make(chan struct{}, 1),
+	}
+	go rt.reindexWorker()
+	return rt
+}
+
+// reindexWorker runs in the background, debouncing rapid writes before rebuilding the index.
+func (r *Router) reindexWorker() {
+	for range r.reindexCh {
+		timer := time.NewTimer(reindexDebounce)
+	drain:
+		for {
+			select {
+			case <-r.reindexCh:
+			case <-timer.C:
+				break drain
+			}
+		}
+		timer.Stop()
+
+		slog.Info("rebuilding full index in background")
+		if err := r.brain.RebuildIndex(); err != nil {
+			slog.Warn("background full index rebuild failed", "err", err)
+		} else {
+			slog.Info("background full index rebuild complete")
+		}
+	}
+}
+
+// triggerReindex sends a non-blocking signal to the background reindex worker.
+func (r *Router) triggerReindex() {
+	select {
+	case r.reindexCh <- struct{}{}:
+	default:
 	}
 }
 
@@ -236,9 +273,12 @@ func (r *Router) extractLearnings(ctx context.Context, brainPaths []string, sess
 		return
 	}
 
-	if err := r.brain.RebuildIndex(); err != nil {
-		slog.Warn("rebuild index failed", "err", err)
+	// Fast sync rebuild of tag index so tag queries reflect new learnings immediately.
+	if err := r.brain.RebuildTagIndex(); err != nil {
+		slog.Warn("tag index rebuild failed", "err", err)
 	}
+	// Full BM25+vector rebuild happens asynchronously to avoid blocking the response.
+	r.triggerReindex()
 
 	sess.LearningsExtracted += len(learnings)
 }

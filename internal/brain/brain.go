@@ -31,9 +31,10 @@ type EmbedOptions struct {
 
 // FileBrain is the file-based Brain implementation.
 type FileBrain struct {
-	root  string
-	mu    sync.RWMutex
-	embed EmbedOptions
+	root      string
+	mu        sync.RWMutex
+	embed     EmbedOptions
+	fileCache map[string]*BrainFile // transient, populated during rebuild only
 }
 
 // New creates a new FileBrain rooted at the given directory.
@@ -83,6 +84,23 @@ func (b *FileBrain) load(relPath string) (*BrainFile, error) {
 	bf.Path = relPath
 	bf.Content = string(rest)
 	return &bf, nil
+}
+
+// loadCached returns a brain file from the transient rebuild cache if available,
+// otherwise falls back to load(). Safe to call when fileCache is nil.
+func (b *FileBrain) loadCached(relPath string) (*BrainFile, error) {
+	if b.fileCache != nil {
+		if bf, ok := b.fileCache[relPath]; ok {
+			return bf, nil
+		}
+		bf, err := b.load(relPath)
+		if err != nil {
+			return nil, err
+		}
+		b.fileCache[relPath] = bf
+		return bf, nil
+	}
+	return b.load(relPath)
 }
 
 // Load reads and parses a brain file by relative path.

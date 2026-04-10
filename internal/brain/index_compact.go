@@ -213,7 +213,7 @@ func (b *FileBrain) saveFullIndexCompact(idx *FullIndex) error {
 	}
 	defer f.Close()
 
-	gz, err := gzip.NewWriterLevel(f, gzip.BestCompression)
+	gz, err := gzip.NewWriterLevel(f, gzip.DefaultCompression)
 	if err != nil {
 		os.Remove(tmpPath)
 		return fmt.Errorf("create gzip writer: %w", err)

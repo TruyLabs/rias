@@ -140,7 +140,7 @@ func buildVecIndexOllama(b *FileBrain, idx *FullIndex, embedder *OllamaEmbedder,
 	}
 
 	for chunkKey, ce := range idx.Chunks {
-		bf, err := b.load(ce.DocPath)
+		bf, err := b.loadCached(ce.DocPath)
 		if err != nil {
 			continue
 		}
@@ -383,7 +383,7 @@ func (b *FileBrain) saveVecIndex(vi *VecIndex) error {
 	}
 	defer f.Close()
 
-	gz, err := gzip.NewWriterLevel(f, gzip.BestCompression)
+	gz, err := gzip.NewWriterLevel(f, gzip.DefaultCompression)
 	if err != nil {
 		os.Remove(tmpPath)
 		return fmt.Errorf("create gzip writer: %w", err)

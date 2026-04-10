@@ -57,6 +57,11 @@ func (b *FileBrain) RebuildTagIndex() error {
 
 // rebuildIndex is the internal unlocked implementation of RebuildIndex.
 func (b *FileBrain) rebuildIndex() error {
+	// Prime a shared file cache so each brain file is read from disk only once
+	// across the tag, BM25, and vector index phases.
+	b.fileCache = make(map[string]*BrainFile)
+	defer func() { b.fileCache = nil }()
+
 	if err := b.rebuildTagIndex(); err != nil {
 		return err
 	}
@@ -74,7 +79,7 @@ func (b *FileBrain) rebuildTagIndex() error {
 	slog.Debug("rebuilding tag index", "files", len(files))
 
 	for _, f := range files {
-		bf, err := b.load(f)
+		bf, err := b.loadCached(f)
 		if err != nil {
 			slog.Debug("tag index: skipping unreadable file", "path", f, "err", err)
 			continue
@@ -185,7 +190,7 @@ func (b *FileBrain) rebuildFullIndex() error {
 	var totalDocWords, totalChunkWords int
 
 	for _, f := range files {
-		bf, err := b.load(f)
+		bf, err := b.loadCached(f)
 		if err != nil {
 			continue
 		}
