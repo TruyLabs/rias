@@ -15,6 +15,7 @@ import (
 	"github.com/norenis/kai/internal/brain"
 	"github.com/norenis/kai/internal/config"
 	"github.com/norenis/kai/internal/dashboard"
+	"github.com/norenis/kai/internal/module"
 	"github.com/norenis/kai/internal/prompt"
 	"github.com/norenis/kai/internal/provider"
 	"github.com/norenis/kai/internal/router"
@@ -276,6 +277,23 @@ func (s *Server) registerTools() {
 			),
 		),
 		s.handleBrainReorganize,
+	)
+
+	s.mcp.AddTool(
+		mcplib.NewTool("module_list",
+			mcplib.WithDescription("List all available modules (plugins) and their enabled status."),
+		),
+		s.handleModuleList,
+	)
+
+	s.mcp.AddTool(
+		mcplib.NewTool("module_run",
+			mcplib.WithDescription("Run a module (plugin) to fetch external data into the brain. Pass a module name, or omit to run all enabled modules."),
+			mcplib.WithString("name",
+				mcplib.Description("Module name to run (e.g. 'github_prs'). Omit to run all enabled modules."),
+			),
+		),
+		s.handleModuleRun,
 	)
 }
 
@@ -716,4 +734,110 @@ func (s *Server) handleTeachDirect(category, topic, content string, req mcplib.C
 	s.triggerReindex()
 
 	return mcplib.NewToolResultText(fmt.Sprintf("Saved to brain/%s/%s.md", category, topic)), nil
+}
+
+func (s *Server) handleModuleList(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
+	reg := module.Default()
+	available := reg.Available()
+	sort.Strings(available)
+
+	enabled := make(map[string]bool, len(s.cfg.Modules))
+	for _, mc := range s.cfg.Modules {
+		if mc.Enabled {
+			enabled[mc.Name] = true
+		}
+	}
+
+	type moduleEntry struct {
+		Name        string `json:"name"`
+		Description string `json:"description"`
+		Enabled     bool   `json:"enabled"`
+	}
+	entries := make([]moduleEntry, 0, len(available))
+	for _, name := range available {
+		entries = append(entries, moduleEntry{
+			Name:        name,
+			Description: reg.Description(name),
+			Enabled:     enabled[name],
+		})
+	}
+
+	data, err := json.Marshal(entries)
+	if err != nil {
+		return mcplib.NewToolResultError(fmt.Sprintf("marshal: %v", err)), nil
+	}
+	return mcplib.NewToolResultText(string(data)), nil
+}
+
+func (s *Server) handleModuleRun(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
+	name, _ := req.RequireString("name")
+
+	reg := module.Default()
+
+	// Helper to run a single module.
+	runOne := func(modName string) (int, error) {
+		var modCfg map[string]interface{}
+		for _, mc := range s.cfg.Modules {
+			if mc.Name == modName {
+				modCfg = mc.Config
+				break
+			}
+		}
+
+		mod, err := reg.Build(modName, modCfg)
+		if err != nil {
+			return 0, err
+		}
+
+		learnings, err := mod.Fetch(ctx)
+		if err != nil {
+			return 0, fmt.Errorf("fetch: %w", err)
+		}
+		if len(learnings) == 0 {
+			return 0, nil
+		}
+
+		if err := s.brain.Learn(learnings); err != nil {
+			return 0, fmt.Errorf("save: %w", err)
+		}
+		if err := s.brain.RebuildTagIndex(); err != nil {
+			slog.Warn("rebuild tag index failed", "err", err)
+		}
+		s.triggerReindex()
+		return len(learnings), nil
+	}
+
+	// Run a specific module.
+	if name != "" {
+		count, err := runOne(name)
+		if err != nil {
+			return mcplib.NewToolResultError(fmt.Sprintf("%s: %v", name, err)), nil
+		}
+		if count == 0 {
+			return mcplib.NewToolResultText(fmt.Sprintf("%s: nothing fetched", name)), nil
+		}
+		return mcplib.NewToolResultText(fmt.Sprintf("%s → %d item(s) imported", name, count)), nil
+	}
+
+	// Run all enabled modules.
+	var sb strings.Builder
+	ran := 0
+	for _, mc := range s.cfg.Modules {
+		if !mc.Enabled {
+			continue
+		}
+		count, err := runOne(mc.Name)
+		if err != nil {
+			sb.WriteString(fmt.Sprintf("%s: error: %v\n", mc.Name, err))
+		} else if count == 0 {
+			sb.WriteString(fmt.Sprintf("%s: nothing fetched\n", mc.Name))
+		} else {
+			sb.WriteString(fmt.Sprintf("%s → %d item(s) imported\n", mc.Name, count))
+		}
+		ran++
+	}
+	if ran == 0 {
+		return mcplib.NewToolResultText("no modules enabled — set 'enabled: true' in config.yaml"), nil
+	}
+	return mcplib.NewToolResultText(strings.TrimSpace(sb.String())), nil
 }

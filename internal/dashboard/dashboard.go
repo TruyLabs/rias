@@ -17,9 +17,12 @@ import (
 	"sync"
 	"time"
 
+	"context"
+
 	kai "github.com/norenis/kai"
 	"github.com/norenis/kai/internal/brain"
 	"github.com/norenis/kai/internal/config"
+	"github.com/norenis/kai/internal/module"
 	"github.com/norenis/kai/internal/router"
 	bsync "github.com/norenis/kai/internal/sync"
 	"github.com/xuri/excelize/v2"
@@ -152,6 +155,8 @@ func (s *Server) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/sync/status", auth(s.handleSyncStatus))
 	mux.HandleFunc("/api/vectors", auth(s.handleVectors))
 	mux.HandleFunc("/api/vectors/build", auth(s.handleVectorsBuild))
+	mux.HandleFunc("/api/plugins", auth(s.handlePlugins))
+	mux.HandleFunc("/api/plugins/run", auth(s.handlePluginRun))
 }
 
 // withAuth wraps a handler with PIN authentication if configured.
@@ -1380,4 +1385,89 @@ func importFileData(filename string, data []byte, category string, tags []string
 		Source:     "imported:" + filename,
 		Updated:    brain.DateOnly{Time: time.Now()},
 	}, nil
+}
+
+func (s *Server) handlePlugins(w http.ResponseWriter, r *http.Request) {
+	reg := module.Default()
+	available := reg.Available()
+	sort.Strings(available)
+
+	enabled := make(map[string]bool, len(s.cfg.Modules))
+	for _, mc := range s.cfg.Modules {
+		if mc.Enabled {
+			enabled[mc.Name] = true
+		}
+	}
+
+	type pluginEntry struct {
+		Name        string `json:"name"`
+		Description string `json:"description"`
+		Enabled     bool   `json:"enabled"`
+	}
+	entries := make([]pluginEntry, 0, len(available))
+	for _, name := range available {
+		entries = append(entries, pluginEntry{
+			Name:        name,
+			Description: reg.Description(name),
+			Enabled:     enabled[name],
+		})
+	}
+	writeJSON(w, map[string]interface{}{"plugins": entries})
+}
+
+func (s *Server) handlePluginRun(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req struct {
+		Name string `json:"name"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, map[string]string{"error": "bad request"})
+		return
+	}
+	if req.Name == "" {
+		writeJSON(w, map[string]string{"error": "name is required"})
+		return
+	}
+
+	reg := module.Default()
+
+	var modCfg map[string]interface{}
+	for _, mc := range s.cfg.Modules {
+		if mc.Name == req.Name {
+			modCfg = mc.Config
+			break
+		}
+	}
+
+	mod, err := reg.Build(req.Name, modCfg)
+	if err != nil {
+		writeJSON(w, map[string]interface{}{"error": err.Error()})
+		return
+	}
+
+	learnings, err := mod.Fetch(context.Background())
+	if err != nil {
+		writeJSON(w, map[string]interface{}{"error": fmt.Sprintf("fetch: %v", err)})
+		return
+	}
+
+	if len(learnings) == 0 {
+		writeJSON(w, map[string]interface{}{"name": req.Name, "imported": 0, "message": "nothing fetched"})
+		return
+	}
+
+	if err := s.brain.Learn(learnings); err != nil {
+		writeJSON(w, map[string]interface{}{"error": fmt.Sprintf("save: %v", err)})
+		return
+	}
+	if err := s.brain.RebuildTagIndex(); err != nil {
+		writeJSON(w, map[string]interface{}{"error": fmt.Sprintf("index: %v", err)})
+		return
+	}
+
+	writeJSON(w, map[string]interface{}{"name": req.Name, "imported": len(learnings)})
 }

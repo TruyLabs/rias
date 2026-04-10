@@ -679,6 +679,39 @@ dialog::backdrop { background: rgba(0,0,0,0.7); backdrop-filter: blur(4px); }
       </section>
 
       <!-- Tools -->
+      <!-- Plugins -->
+      <section v-if="page === 'plugins'" aria-labelledby="plugins-heading">
+        <h2 id="plugins-heading" class="heading-xl">Plugins</h2>
+        <p class="text-xs text-gray-500 mb-4">Modules pull external data into the brain. Configure them in <code class="text-gray-400">config.yaml</code> under <code class="text-gray-400">modules:</code>.</p>
+        <div class="grid-1-2-gap" role="list" aria-label="Available plugins">
+          <div v-for="p in plugins" :key="p.name" role="listitem" class="card-base flex items-center justify-between gap-3">
+            <div class="flex-1 min-w-0">
+              <div class="flex items-center gap-2">
+                <span class="font-mono text-sm font-semibold text-blue-400">{{ p.name }}</span>
+                <span v-if="p.enabled" class="text-[10px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded bg-green-500/15 text-green-400">enabled</span>
+                <span v-else class="text-[10px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded bg-dark-600 text-gray-600">disabled</span>
+              </div>
+              <div class="text-xs text-gray-500 mt-1">{{ p.description }}</div>
+            </div>
+            <button @click="runPlugin(p.name)" type="button"
+              :disabled="pluginRunning === p.name"
+              class="shrink-0 px-3 py-1.5 rounded text-xs font-medium transition"
+              :class="pluginRunning === p.name
+                ? 'bg-dark-600 text-gray-600 cursor-wait'
+                : 'bg-blue-500/15 text-blue-400 hover:bg-blue-500/25'">
+              <span v-if="pluginRunning === p.name">Running&hellip;</span>
+              <span v-else>Run</span>
+            </button>
+          </div>
+        </div>
+        <div v-if="pluginResult" class="card-base mt-4">
+          <div v-if="pluginResult.error" class="text-sm text-red-400">{{ pluginResult.name }}: {{ pluginResult.error }}</div>
+          <div v-else-if="pluginResult.imported === 0" class="text-sm text-gray-500">{{ pluginResult.name }}: nothing fetched</div>
+          <div v-else class="text-sm text-green-400">{{ pluginResult.name }} &rarr; {{ pluginResult.imported }} item(s) imported</div>
+        </div>
+        <empty-state v-if="!plugins.length" message="No plugins available."></empty-state>
+      </section>
+
       <section v-if="page === 'tools'" aria-labelledby="tools-heading">
         <h2 id="tools-heading" class="heading-xl">MCP Tools</h2>
         <div class="grid-1-2-gap" role="list" aria-label="Available tools">
@@ -973,6 +1006,9 @@ const app = createApp({
     const services = ref([]);
     const files = ref([]);
     const tools = ref([]);
+    const plugins = ref([]);
+    const pluginRunning = ref('');
+    const pluginResult = ref(null);
     const reorgActions = ref([]);
     const vecLoading = ref(false);
     const vecBuilding = ref(false);
@@ -1055,8 +1091,9 @@ const app = createApp({
       { page: 'import', icon: '&#128190;', label: 'Import', badge: null },
       { page: 'tasks', icon: '&#9745;', label: 'Tasks', badge: null },
       { divider: true },
+      { page: 'plugins', icon: '&#9881;', label: 'Plugins', badge: plugins.value.length },
       { page: 'tools', icon: '&#9874;', label: 'Tools', badge: tools.value.length },
-      { page: 'reorg', icon: '&#9881;', label: 'Reorganize', badge: reorgActions.value.length },
+      { page: 'reorg', icon: '&#128472;', label: 'Reorganize', badge: reorgActions.value.length },
       { divider: true },
       { page: 'vectors', icon: '&#11835;', label: 'Vectors', badge: null },
     ]);
@@ -1074,9 +1111,9 @@ const app = createApp({
     };
 
     const loadAll = async () => {
-      const [infoData, overviewData, tagsData, tasksData, activityData, statusData, filesData, toolsData, reorgData] = await Promise.all([
+      const [infoData, overviewData, tagsData, tasksData, activityData, statusData, filesData, toolsData, reorgData, pluginsData] = await Promise.all([
         api('/api/info'), api('/api/overview'), api('/api/tags'), api('/api/tasks'), api('/api/activity'),
-        api('/api/status'), api('/api/files'), api('/api/tools'), api('/api/reorg'),
+        api('/api/status'), api('/api/files'), api('/api/tools'), api('/api/reorg'), api('/api/plugins'),
       ]);
       if (infoData) { info.value = infoData; document.title = infoData.agent_name + ' Dashboard'; }
       if (overviewData) overview.value = overviewData;
@@ -1087,6 +1124,7 @@ const app = createApp({
       if (filesData?.files) files.value = filesData.files;
       if (toolsData?.tools) tools.value = toolsData.tools;
       if (reorgData?.actions) reorgActions.value = reorgData.actions;
+      if (pluginsData?.plugins) plugins.value = pluginsData.plugins;
       loadSyncStatus();
     };
 
@@ -1200,6 +1238,18 @@ const app = createApp({
     watch(page, (p) => { if (p === 'vectors' && vecMeta.value.nodes === 0) loadVectors(); });
 
     const searchFromTag = (tag) => { page.value = 'search'; searchQuery.value = tag; doSearch(); };
+
+    const runPlugin = async (name) => {
+      pluginRunning.value = name;
+      pluginResult.value = null;
+      const data = await post('/api/plugins/run', { name });
+      pluginRunning.value = '';
+      if (data?.error) { pluginResult.value = { name, error: data.error }; }
+      else { pluginResult.value = data; }
+      // Refresh overview since brain files may have changed.
+      const overviewData = await api('/api/overview');
+      if (overviewData) overview.value = overviewData;
+    };
 
     const openTool = (tool) => {
       currentTool.value = tool;
@@ -1430,14 +1480,14 @@ const app = createApp({
     });
 
     return {
-      locked, pin, authError, page, sidebarOpen, info, overview, tags, taskItems, activity, services, files, tools, reorgActions,
+      locked, pin, authError, page, sidebarOpen, info, overview, tags, taskItems, activity, services, files, tools, plugins, pluginRunning, pluginResult, reorgActions,
       searchQuery, searchResults, syncConfigured, syncBackend, syncMsg, syncError, syncDetail, syncing, syncButtons, syncButtonClasses,
       chatMode, chatMessages, chatInput, chatLoading, chatStreaming, chatScroll,
       dialogFile, dialogTab, dialogRendered, fileDialog,
       currentTool, toolParams, toolResult, toolStatus, toolExecuting, toolTab, toolRendered, toolDialog,
       selectedFiles, dragActive, importing, importOptions, importResults,
       navItems, sortedCategories, maxCategory, tasksDone, tasksPct,
-      authenticate, viewFile, doSearch, searchFromTag, openTool, executeTool, loadSyncStatus, doSync, sendChat,
+      authenticate, viewFile, doSearch, searchFromTag, runPlugin, openTool, executeTool, loadSyncStatus, doSync, sendChat,
       handleFileSelect, handleDrop, handleImport,
       vecLoading, vecBuilding, vecSelected, vecMeta, vecGroups, loadVectors, buildEmbeddings, vecZoom, vecFit,
     };
