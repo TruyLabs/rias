@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os/exec"
 	"strings"
 	"time"
 
@@ -16,7 +17,7 @@ const githubAPIBase = "https://api.github.com"
 
 // gitHubPRsModule fetches pull requests from one or more GitHub repositories.
 type gitHubPRsModule struct {
-	token string
+	token string // empty = use gh CLI
 	repos []string
 	state string
 	limit int
@@ -25,16 +26,19 @@ type gitHubPRsModule struct {
 // NewGitHubPRsModule creates a github_prs module from a raw config map.
 //
 // Required config keys:
-//   - token: GitHub personal access token
 //   - repos: list of "owner/repo" strings
 //
 // Optional config keys:
+//   - token: GitHub personal access token (if empty, uses `gh` CLI)
 //   - state: "open" | "closed" | "all" (default: "open")
 //   - limit: max PRs to fetch per repo (default: 20)
 func NewGitHubPRsModule(cfg map[string]interface{}) (Module, error) {
 	token := cfgString(cfg, "token", "")
 	if token == "" {
-		return nil, fmt.Errorf("github_prs: 'token' is required")
+		// No token — check if gh CLI is available and authenticated.
+		if _, err := exec.LookPath("gh"); err != nil {
+			return nil, fmt.Errorf("github_prs: 'token' not set and 'gh' CLI not found — provide a token or install gh (https://cli.github.com)")
+		}
 	}
 	repos := cfgStrings(cfg, "repos")
 	if len(repos) == 0 {
@@ -68,11 +72,16 @@ type ghPR struct {
 }
 
 func (m *gitHubPRsModule) Fetch(ctx context.Context) ([]brain.Learning, error) {
-	client := &http.Client{Timeout: 30 * time.Second}
 	var learnings []brain.Learning
 
 	for _, repo := range m.repos {
-		prs, err := m.fetchPRs(ctx, client, repo)
+		var prs []ghPR
+		var err error
+		if m.token != "" {
+			prs, err = m.fetchPRsAPI(ctx, repo)
+		} else {
+			prs, err = m.fetchPRsGH(ctx, repo)
+		}
 		if err != nil {
 			return nil, fmt.Errorf("github_prs: %s: %w", repo, err)
 		}
@@ -84,7 +93,9 @@ func (m *gitHubPRsModule) Fetch(ctx context.Context) ([]brain.Learning, error) {
 	return learnings, nil
 }
 
-func (m *gitHubPRsModule) fetchPRs(ctx context.Context, client *http.Client, repo string) ([]ghPR, error) {
+// fetchPRsAPI fetches PRs using the GitHub REST API with a token.
+func (m *gitHubPRsModule) fetchPRsAPI(ctx context.Context, repo string) ([]ghPR, error) {
+	client := &http.Client{Timeout: 30 * time.Second}
 	url := fmt.Sprintf("%s/repos/%s/pulls?state=%s&per_page=%d", githubAPIBase, repo, m.state, m.limit)
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
@@ -110,6 +121,70 @@ func (m *gitHubPRsModule) fetchPRs(ctx context.Context, client *http.Client, rep
 	if err := json.NewDecoder(resp.Body).Decode(&prs); err != nil {
 		return nil, fmt.Errorf("decode: %w", err)
 	}
+	return prs, nil
+}
+
+// fetchPRsGH fetches PRs using the gh CLI (no token needed).
+func (m *gitHubPRsModule) fetchPRsGH(ctx context.Context, repo string) ([]ghPR, error) {
+	state := m.state
+	if state == "" {
+		state = "open"
+	}
+
+	args := []string{"pr", "list",
+		"--repo", repo,
+		"--state", state,
+		"--limit", fmt.Sprintf("%d", m.limit),
+		"--json", "number,title,body,state,url,author,labels,mergedAt,createdAt",
+	}
+
+	cmd := exec.CommandContext(ctx, "gh", args...)
+	out, err := cmd.Output()
+	if err != nil {
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			return nil, fmt.Errorf("gh cli: %s", string(exitErr.Stderr))
+		}
+		return nil, fmt.Errorf("gh cli: %w", err)
+	}
+
+	// gh outputs a different JSON shape — map it to ghPR.
+	var ghResults []struct {
+		Number   int    `json:"number"`
+		Title    string `json:"title"`
+		Body     string `json:"body"`
+		State    string `json:"state"`
+		URL      string `json:"url"`
+		Author   struct {
+			Login string `json:"login"`
+		} `json:"author"`
+		Labels []struct {
+			Name string `json:"name"`
+		} `json:"labels"`
+		MergedAt  *string `json:"mergedAt"`
+		CreatedAt string  `json:"createdAt"`
+	}
+	if err := json.Unmarshal(out, &ghResults); err != nil {
+		return nil, fmt.Errorf("decode gh output: %w", err)
+	}
+
+	prs := make([]ghPR, len(ghResults))
+	for i, r := range ghResults {
+		prs[i] = ghPR{
+			Number:    r.Number,
+			Title:     r.Title,
+			Body:      r.Body,
+			State:     strings.ToLower(r.State),
+			HTMLURL:   r.URL,
+			MergedAt:  r.MergedAt,
+			CreatedAt: r.CreatedAt,
+		}
+		prs[i].User.Login = r.Author.Login
+		prs[i].Labels = make([]struct {
+			Name string `json:"name"`
+		}, len(r.Labels))
+		copy(prs[i].Labels, r.Labels)
+	}
+
 	return prs, nil
 }
 

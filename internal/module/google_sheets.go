@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os/exec"
 	"strings"
 	"time"
 
@@ -17,7 +18,8 @@ const sheetsAPIBase = "https://sheets.googleapis.com/v4/spreadsheets"
 
 // googleSheetsModule reads rows from a Google Sheet and imports them as brain knowledge.
 type googleSheetsModule struct {
-	apiKey        string
+	apiKey        string // public sheets (API key auth)
+	accessToken   string // private sheets (OAuth/gcloud auth)
 	spreadsheetID string
 	cellRange     string
 	category      string
@@ -27,8 +29,12 @@ type googleSheetsModule struct {
 // NewGoogleSheetsModule creates a google_sheets module from a raw config map.
 //
 // Required config keys:
-//   - api_key: Google API key (the sheet must be publicly accessible)
 //   - spreadsheet_id: the ID from the sheet URL
+//
+// Auth (one of):
+//   - api_key: Google API key (sheet must be publicly accessible)
+//   - access_token: OAuth access token (e.g. from `gcloud auth print-access-token`)
+//   - If neither is set, tries `gcloud auth print-access-token` automatically
 //
 // Optional config keys:
 //   - range: cell range to read, e.g. "Sheet1!A:Z" (default: "Sheet1!A:Z")
@@ -36,9 +42,18 @@ type googleSheetsModule struct {
 //   - topic: brain file slug (default: derived from spreadsheet_id)
 func NewGoogleSheetsModule(cfg map[string]interface{}) (Module, error) {
 	apiKey := cfgString(cfg, "api_key", "")
-	if apiKey == "" {
-		return nil, fmt.Errorf("google_sheets: 'api_key' is required")
+	accessToken := cfgString(cfg, "access_token", "")
+
+	if apiKey == "" && accessToken == "" {
+		// Try gcloud CLI to get an access token automatically.
+		if out, err := exec.Command("gcloud", "auth", "print-access-token").Output(); err == nil {
+			accessToken = strings.TrimSpace(string(out))
+		}
+		if accessToken == "" {
+			return nil, fmt.Errorf("google_sheets: provide 'api_key' (public sheets), 'access_token' (OAuth), or install gcloud CLI with active auth")
+		}
 	}
+
 	spreadsheetID := cfgString(cfg, "spreadsheet_id", "")
 	if spreadsheetID == "" {
 		return nil, fmt.Errorf("google_sheets: 'spreadsheet_id' is required")
@@ -51,6 +66,7 @@ func NewGoogleSheetsModule(cfg map[string]interface{}) (Module, error) {
 
 	return &googleSheetsModule{
 		apiKey:        apiKey,
+		accessToken:   accessToken,
 		spreadsheetID: spreadsheetID,
 		cellRange:     cfgString(cfg, "range", "Sheet1!A:Z"),
 		category:      cfgString(cfg, "category", "knowledge"),
@@ -68,16 +84,21 @@ type sheetsValuesResponse struct {
 func (m *googleSheetsModule) Fetch(ctx context.Context) ([]brain.Learning, error) {
 	client := &http.Client{Timeout: 30 * time.Second}
 
-	endpoint := fmt.Sprintf("%s/%s/values/%s?key=%s",
+	endpoint := fmt.Sprintf("%s/%s/values/%s",
 		sheetsAPIBase,
 		url.PathEscape(m.spreadsheetID),
 		url.PathEscape(m.cellRange),
-		url.QueryEscape(m.apiKey),
 	)
+	if m.apiKey != "" {
+		endpoint += "?key=" + url.QueryEscape(m.apiKey)
+	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
 		return nil, err
+	}
+	if m.accessToken != "" {
+		req.Header.Set("Authorization", "Bearer "+m.accessToken)
 	}
 
 	resp, err := client.Do(req)

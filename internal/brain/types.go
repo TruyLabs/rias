@@ -97,6 +97,7 @@ type DocEntry struct {
 	Updated     string   `json:"updated"`
 	AccessCount int      `json:"access_count"`
 	ChunkCount  int      `json:"chunk_count,omitempty"`
+	Confidence  string   `json:"confidence,omitempty"`
 }
 
 // ChunkEntry stores metadata for a single chunk within a document.

@@ -29,12 +29,20 @@ type EmbedOptions struct {
 	OllamaModel string
 }
 
+const indexCacheTTL = 5 * time.Second
+
 // FileBrain is the file-based Brain implementation.
 type FileBrain struct {
 	root      string
 	mu        sync.RWMutex
 	embed     EmbedOptions
 	fileCache map[string]*BrainFile // transient, populated during rebuild only
+
+	// TTL caches — avoid repeated gzip decompression on rapid dashboard reads.
+	indexCache   *FullIndex
+	indexCacheAt time.Time
+	vecCache     *VecIndex
+	vecCacheAt   time.Time
 }
 
 // New creates a new FileBrain rooted at the given directory.
@@ -166,7 +174,52 @@ func (b *FileBrain) save(bf *BrainFile) error {
 func (b *FileBrain) Save(bf *BrainFile) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	b.indexCache = nil // invalidate — file content changed
 	return b.save(bf)
+}
+
+// loadFullIndexCached returns the cached full index if fresh, otherwise loads from disk.
+// Must be called with at least a read lock held.
+func (b *FileBrain) loadFullIndexCached() (*FullIndex, error) {
+	if b.indexCache != nil && time.Since(b.indexCacheAt) < indexCacheTTL {
+		return b.indexCache, nil
+	}
+	idx, err := b.loadFullIndex()
+	if err != nil {
+		return nil, err
+	}
+	b.indexCache = idx
+	b.indexCacheAt = time.Now()
+	return idx, nil
+}
+
+// LoadFullIndexCached returns the full index, using a short-lived cache to
+// avoid repeated gzip decompression across concurrent dashboard handlers.
+func (b *FileBrain) LoadFullIndexCached() (*FullIndex, error) {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	return b.loadFullIndexCached()
+}
+
+// loadVecIndexCached returns the cached vec index if fresh, otherwise loads from disk.
+func (b *FileBrain) loadVecIndexCached() (*VecIndex, error) {
+	if b.vecCache != nil && time.Since(b.vecCacheAt) < indexCacheTTL {
+		return b.vecCache, nil
+	}
+	vi, err := b.loadVecIndex()
+	if err != nil {
+		return nil, err
+	}
+	b.vecCache = vi
+	b.vecCacheAt = time.Now()
+	return vi, nil
+}
+
+// LoadVecIndexCached returns the vec index, using a short-lived cache.
+func (b *FileBrain) LoadVecIndexCached() (*VecIndex, error) {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	return b.loadVecIndexCached()
 }
 
 // listAll is the internal unlocked implementation of ListAll.

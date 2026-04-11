@@ -34,12 +34,12 @@ server:
 
 # Modules pull external data into the brain on demand via 'kai module run'.
 # Run 'kai module list' to see all available modules.
-# Note: ${ENV_VAR} references must be set in your environment before running kai.
 modules:
   - name: github_prs
     enabled: false
     config:
-      token: ${GITHUB_TOKEN}        # GitHub personal access token
+      # token: ghp_xxx             # optional: GitHub PAT (classic or fine-grained)
+                                    # if omitted, uses `gh` CLI auth automatically
       repos:
         - owner/repo               # list of owner/repo to fetch PRs from
       state: open                  # open | closed | all (default: open)
@@ -48,7 +48,9 @@ modules:
   - name: google_sheets
     enabled: false
     config:
-      api_key: ${GOOGLE_API_KEY}   # Google API key (sheet must be publicly accessible)
+      # Auth (pick one, or omit all to use gcloud CLI automatically):
+      # api_key: AIza...           # Google API key (sheet must be publicly accessible)
+      # access_token: ya29...      # OAuth token (for private sheets)
       spreadsheet_id: ""           # ID from the sheet URL
       range: "Sheet1!A:Z"          # cell range to read (default: Sheet1!A:Z)
       category: knowledge          # brain category: knowledge | decisions | identity | opinions | style

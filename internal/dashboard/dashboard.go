@@ -274,7 +274,7 @@ func (s *Server) handleOverview(w http.ResponseWriter, r *http.Request) {
 
 	resp := response{Categories: make(map[string]int)}
 
-	idx, err := s.brain.LoadFullIndex()
+	idx, err := s.brain.LoadFullIndexCached()
 	if err != nil {
 		// Fall back to basic file list.
 		files, _ := s.brain.ListAll()
@@ -309,7 +309,7 @@ func (s *Server) handleOverview(w http.ResponseWriter, r *http.Request) {
 	resp.UniqueTags = len(tags)
 
 	// Load vector index info.
-	if vi, err := s.brain.LoadVecIndex(); err == nil && vi != nil {
+	if vi, err := s.brain.LoadVecIndexCached(); err == nil && vi != nil {
 		resp.VecProvider = vi.Provider
 		resp.VecDims = vi.Dims
 		resp.VecChunks = len(vi.ChunkVecs)
@@ -393,7 +393,7 @@ func (s *Server) handleActivity(w http.ResponseWriter, r *http.Request) {
 		Recent []activityEntry `json:"recent"`
 	}
 
-	idx, err := s.brain.LoadFullIndex()
+	idx, err := s.brain.LoadFullIndexCached()
 	if err != nil {
 		writeJSON(w, response{Recent: []activityEntry{}})
 		return
@@ -517,7 +517,7 @@ func (s *Server) handleTags(w http.ResponseWriter, r *http.Request) {
 		Tags []tagEntry `json:"tags"`
 	}
 
-	idx, err := s.brain.LoadFullIndex()
+	idx, err := s.brain.LoadFullIndexCached()
 	if err != nil {
 		writeJSON(w, response{Tags: []tagEntry{}})
 		return
@@ -557,40 +557,49 @@ func (s *Server) handleFiles(w http.ResponseWriter, r *http.Request) {
 		Files []fileEntry `json:"files"`
 	}
 
-	files, err := s.brain.ListAll()
-	if err != nil {
-		writeJSON(w, response{Files: []fileEntry{}})
-		return
-	}
+	// Fast path: use cached index (no per-file disk reads).
+	idx, _ := s.brain.LoadFullIndexCached()
 
-	idx, _ := s.brain.LoadFullIndex()
-
-	entries := make([]fileEntry, 0, len(files))
-	for _, f := range files {
-		cat := strings.SplitN(f, "/", 2)[0]
-		entry := fileEntry{Path: f, Category: cat}
-
-		if idx != nil {
-			if doc, ok := idx.Documents[f]; ok {
-				entry.Tags = doc.Tags
-				entry.WordCount = doc.WordCount
-				entry.AccessCount = doc.AccessCount
-				entry.Updated = doc.Updated
+	var entries []fileEntry
+	if idx != nil && len(idx.Documents) > 0 {
+		entries = make([]fileEntry, 0, len(idx.Documents))
+		for _, doc := range idx.Documents {
+			cat := strings.SplitN(doc.Path, "/", 2)[0]
+			tags := doc.Tags
+			if tags == nil {
+				tags = []string{}
 			}
+			entries = append(entries, fileEntry{
+				Path:        doc.Path,
+				Category:    cat,
+				Tags:        tags,
+				Confidence:  doc.Confidence,
+				WordCount:   doc.WordCount,
+				AccessCount: doc.AccessCount,
+				Updated:     doc.Updated,
+			})
 		}
-
-		bf, err := s.brain.Load(f)
-		if err == nil {
-			entry.Confidence = bf.Confidence
-			if entry.Tags == nil {
+	} else {
+		// Fallback: no index available, list files and load individually.
+		files, err := s.brain.ListAll()
+		if err != nil {
+			writeJSON(w, response{Files: []fileEntry{}})
+			return
+		}
+		entries = make([]fileEntry, 0, len(files))
+		for _, f := range files {
+			cat := strings.SplitN(f, "/", 2)[0]
+			entry := fileEntry{Path: f, Category: cat}
+			bf, err := s.brain.Load(f)
+			if err == nil {
 				entry.Tags = bf.Tags
+				entry.Confidence = bf.Confidence
 			}
+			if entry.Tags == nil {
+				entry.Tags = []string{}
+			}
+			entries = append(entries, entry)
 		}
-		if entry.Tags == nil {
-			entry.Tags = []string{}
-		}
-
-		entries = append(entries, entry)
 	}
 
 	sort.Slice(entries, func(i, j int) bool { return entries[i].Path < entries[j].Path })
@@ -1223,10 +1232,10 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		embedProvider = "auto"
 	}
 
-	vi, viErr := s.brain.LoadVecIndex()
+	vi, viErr := s.brain.LoadVecIndexCached()
 	if viErr != nil {
-		// No vector index yet — check what's configured
-		if embedProvider == "ollama" || embedProvider == "auto" {
+		// No vector index yet — report configured provider without network probing.
+		if embedProvider == "ollama" {
 			ollamaURL := s.cfg.Brain.Embeddings.Ollama.URL
 			if ollamaURL == "" {
 				ollamaURL = brain.DefaultOllamaURL
@@ -1235,27 +1244,17 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 			if model == "" {
 				model = brain.DefaultEmbedModel
 			}
-			embedder := brain.NewOllamaEmbedder(brain.OllamaEmbedConfig{
-				URL: ollamaURL, Model: model,
-			})
-			if embedder.Available() {
-				services = append(services, serviceStatus{
-					Name: "Embeddings", Status: "connected",
-					Value: "Ollama", Tooltip: model + " @ " + ollamaURL + " (index not built)",
-				})
-			} else if embedProvider == "auto" {
-				services = append(services, serviceStatus{
-					Name: "Embeddings", Status: "connected", Value: "LSI", Tooltip: "No vector index yet",
-				})
-			} else {
-				services = append(services, serviceStatus{
-					Name: "Embeddings", Status: "disconnected",
-					Value: "Ollama", Tooltip: model + " @ " + ollamaURL + " (unreachable)",
-				})
-			}
-		} else {
 			services = append(services, serviceStatus{
-				Name: "Embeddings", Status: "connected", Value: "LSI", Tooltip: "No vector index yet",
+				Name: "Embeddings", Status: "not_configured",
+				Value: "Ollama", Tooltip: model + " @ " + ollamaURL + " (index not built — run reindex)",
+			})
+		} else {
+			value := "LSI"
+			if embedProvider == "auto" {
+				value = "auto"
+			}
+			services = append(services, serviceStatus{
+				Name: "Embeddings", Status: "not_configured", Value: value, Tooltip: "No vector index yet — run reindex",
 			})
 		}
 	} else {

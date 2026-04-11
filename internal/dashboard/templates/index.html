@@ -746,7 +746,8 @@ dialog::backdrop { background: rgba(0,0,0,0.7); backdrop-filter: blur(4px); }
             </div>
             <p class="text-xs text-gray-500 mt-1">{{ a.reason }}</p>
           </div>
-          <empty-state v-if="!reorgActions.length" message="Brain looks clean — no reorganization needed."></empty-state>
+          <p v-if="reorgLoading" class="text-sm text-gray-500 text-center py-8">Analyzing brain&hellip;</p>
+          <empty-state v-else-if="!reorgActions.length" message="Brain looks clean — no reorganization needed."></empty-state>
         </div>
       </section>
 
@@ -1111,9 +1112,9 @@ const app = createApp({
     };
 
     const loadAll = async () => {
-      const [infoData, overviewData, tagsData, tasksData, activityData, statusData, filesData, toolsData, reorgData, pluginsData] = await Promise.all([
+      const [infoData, overviewData, tagsData, tasksData, activityData, statusData, filesData, toolsData, pluginsData] = await Promise.all([
         api('/api/info'), api('/api/overview'), api('/api/tags'), api('/api/tasks'), api('/api/activity'),
-        api('/api/status'), api('/api/files'), api('/api/tools'), api('/api/reorg'), api('/api/plugins'),
+        api('/api/status'), api('/api/files'), api('/api/tools'), api('/api/plugins'),
       ]);
       if (infoData) { info.value = infoData; document.title = infoData.agent_name + ' Dashboard'; }
       if (overviewData) overview.value = overviewData;
@@ -1123,9 +1124,17 @@ const app = createApp({
       if (statusData?.services) services.value = statusData.services;
       if (filesData?.files) files.value = filesData.files;
       if (toolsData?.tools) tools.value = toolsData.tools;
-      if (reorgData?.actions) reorgActions.value = reorgData.actions;
       if (pluginsData?.plugins) plugins.value = pluginsData.plugins;
       loadSyncStatus();
+    };
+
+    const reorgLoading = ref(false);
+    const loadReorg = async () => {
+      if (reorgLoading.value) return;
+      reorgLoading.value = true;
+      const data = await api('/api/reorg');
+      if (data?.actions) reorgActions.value = data.actions;
+      reorgLoading.value = false;
     };
 
     const viewFile = async (path) => {
@@ -1235,7 +1244,10 @@ const app = createApp({
     };
 
     // Auto-load when navigating to vectors page.
-    watch(page, (p) => { if (p === 'vectors' && vecMeta.value.nodes === 0) loadVectors(); });
+    watch(page, (p) => {
+      if (p === 'vectors' && vecMeta.value.nodes === 0) loadVectors();
+      if (p === 'reorg' && reorgActions.value.length === 0 && !reorgLoading.value) loadReorg();
+    });
 
     const searchFromTag = (tag) => { page.value = 'search'; searchQuery.value = tag; doSearch(); };
 
@@ -1480,7 +1492,7 @@ const app = createApp({
     });
 
     return {
-      locked, pin, authError, page, sidebarOpen, info, overview, tags, taskItems, activity, services, files, tools, plugins, pluginRunning, pluginResult, reorgActions,
+      locked, pin, authError, page, sidebarOpen, info, overview, tags, taskItems, activity, services, files, tools, plugins, pluginRunning, pluginResult, reorgActions, reorgLoading, loadReorg,
       searchQuery, searchResults, syncConfigured, syncBackend, syncMsg, syncError, syncDetail, syncing, syncButtons, syncButtonClasses,
       chatMode, chatMessages, chatInput, chatLoading, chatStreaming, chatScroll,
       dialogFile, dialogTab, dialogRendered, fileDialog,

@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 )
 
 // Index file names.
@@ -213,6 +214,7 @@ func (b *FileBrain) rebuildFullIndex() error {
 			Updated:     bf.Updated.Time.Format(DateFormat),
 			AccessCount: bf.AccessCount,
 			ChunkCount:  len(chunks),
+			Confidence:  bf.Confidence,
 		}
 		idx.TotalDocs++
 
@@ -289,6 +291,9 @@ func (b *FileBrain) rebuildFullIndex() error {
 	if err := b.saveFullIndex(idx); err != nil {
 		return err
 	}
+	// Warm the full-index cache so the next read avoids disk I/O.
+	b.indexCache = idx
+	b.indexCacheAt = time.Now()
 
 	// Build and save vector index for hybrid search.
 	slog.Debug("building vector index", "provider", b.embed.Provider)
@@ -298,6 +303,8 @@ func (b *FileBrain) rebuildFullIndex() error {
 		if err := b.saveVecIndex(vi); err != nil {
 			return fmt.Errorf("save vec index: %w", err)
 		}
+		b.vecCache = vi
+		b.vecCacheAt = time.Now()
 	} else {
 		slog.Debug("vector index skipped (no embedder available)")
 	}
