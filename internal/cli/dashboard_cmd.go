@@ -50,12 +50,23 @@ func newDashboardCmd() *cobra.Command {
 				slog.Info("sync backends available for dashboard")
 			}
 
-			addr := fmt.Sprintf("localhost:%d", port)
-			url := fmt.Sprintf("http://%s", addr)
-			fmt.Printf("%s dashboard: %s\n", cfg.AgentName(), url)
+			// Determine bind host from config (default 0.0.0.0) with --port override.
+			bindHost := "0.0.0.0"
+			if cfgHost, _, err := net.SplitHostPort(cfg.Server.ListenAddr); err == nil && cfgHost != "" {
+				bindHost = cfgHost
+			}
+			addr := fmt.Sprintf("%s:%d", bindHost, port)
+			localURL := fmt.Sprintf("http://localhost:%d", port)
+
+			fmt.Printf("%s dashboard: %s\n", cfg.AgentName(), localURL)
+			if bindHost == "0.0.0.0" || bindHost == "" {
+				if lanIP := lanIPAddress(); lanIP != "" {
+					fmt.Printf("%s dashboard (LAN): http://%s:%d\n", cfg.AgentName(), lanIP, port)
+				}
+			}
 
 			if !noOpen {
-				openBrowser(url)
+				openBrowser(localURL)
 			}
 
 			return srv.ListenAndServe(addr)
@@ -91,6 +102,39 @@ func openBrowser(url string) {
 		return
 	}
 	cmd.Start()
+}
+
+// lanIPAddress returns the first non-loopback IPv4 address, or empty string.
+func lanIPAddress() string {
+	ifaces, err := net.Interfaces()
+	if err != nil {
+		return ""
+	}
+	for _, iface := range ifaces {
+		if iface.Flags&net.FlagUp == 0 || iface.Flags&net.FlagLoopback != 0 {
+			continue
+		}
+		addrs, err := iface.Addrs()
+		if err != nil {
+			continue
+		}
+		for _, addr := range addrs {
+			var ip net.IP
+			switch v := addr.(type) {
+			case *net.IPNet:
+				ip = v.IP
+			case *net.IPAddr:
+				ip = v.IP
+			}
+			if ip == nil || ip.IsLoopback() {
+				continue
+			}
+			if ip4 := ip.To4(); ip4 != nil {
+				return ip4.String()
+			}
+		}
+	}
+	return ""
 }
 
 func dashboardSyncer(cfg *config.Config, brainPath string) *bsync.Syncer {

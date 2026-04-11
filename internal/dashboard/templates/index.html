@@ -6,6 +6,7 @@
 <title>Dashboard</title>
 <script src="https://cdn.tailwindcss.com"></script>
 <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/3d-force-graph@1/dist/3d-force-graph.min.js"></script>
 <script>
 tailwind.config = {
@@ -13,7 +14,7 @@ tailwind.config = {
   theme: {
     extend: {
       colors: {
-        dark: { 900: '#0a0e14', 800: '#111820', 700: '#1a2130', 600: '#252d3a' },
+        dark: { 900: '#0f172a', 800: '#1e293b', 700: '#334155', 600: '#475569' },
       },
       fontFamily: {
         mono: ['SF Mono', 'Fira Code', 'JetBrains Mono', 'Consolas', 'monospace'],
@@ -25,29 +26,29 @@ tailwind.config = {
 <style>
 ::-webkit-scrollbar { width: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: #252d3a; border-radius: 3px; }
+::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
 [v-cloak] { display: none; }
 @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
 .chat-msg { animation: fadeIn 0.2s ease-out; }
 @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
 .streaming-cursor::after { content: ''; display: inline-block; width: 2px; height: 1em; background: #58a6ff; margin-left: 2px; vertical-align: text-bottom; animation: blink 0.8s infinite; }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
-.md-content h1 { font-size: 1.25rem; font-weight: 700; color: #e6edf3; margin: 1rem 0 0.5rem; padding-bottom: 0.375rem; border-bottom: 1px solid #252d3a; }
+.md-content h1 { font-size: 1.25rem; font-weight: 700; color: #e6edf3; margin: 1rem 0 0.5rem; padding-bottom: 0.375rem; border-bottom: 1px solid #334155; }
 .md-content h2 { font-size: 1rem; font-weight: 600; color: #e6edf3; margin: 0.875rem 0 0.375rem; }
 .md-content h3 { font-size: 0.875rem; font-weight: 600; color: #e6edf3; margin: 0.75rem 0 0.25rem; }
 .md-content p { margin: 0.375rem 0; }
 .md-content ul, .md-content ol { padding-left: 1.25rem; margin: 0.375rem 0; }
 .md-content li { margin: 0.2rem 0; }
-.md-content code { font-family: var(--tw-font-mono); background: #1a2130; color: #58a6ff; padding: 0.1rem 0.375rem; border-radius: 0.25rem; font-size: 0.75rem; }
-.md-content pre { background: #0a0e14; border: 1px solid #252d3a; border-radius: 0.375rem; padding: 0.75rem 1rem; margin: 0.5rem 0; overflow-x: auto; }
+.md-content code { font-family: var(--tw-font-mono); background: #253347; color: #58a6ff; padding: 0.1rem 0.375rem; border-radius: 0.25rem; font-size: 0.75rem; }
+.md-content pre { background: #0f172a; border: 1px solid #334155; border-radius: 0.375rem; padding: 0.75rem 1rem; margin: 0.5rem 0; overflow-x: auto; }
 .md-content pre code { background: none; padding: 0; color: #8b949e; }
 .md-content blockquote { border-left: 3px solid #58a6ff; padding: 0.25rem 0.75rem; margin: 0.5rem 0; color: #8b949e; background: rgba(88,166,255,0.08); border-radius: 0 0.375rem 0.375rem 0; }
 .md-content a { color: #58a6ff; text-decoration: underline; }
-.md-content hr { border: none; border-top: 1px solid #252d3a; margin: 0.75rem 0; }
+.md-content hr { border: none; border-top: 1px solid #334155; margin: 0.75rem 0; }
 .md-content strong { color: #e6edf3; font-weight: 600; }
 .md-content table { width: 100%; border-collapse: collapse; margin: 0.5rem 0; }
-.md-content table th { background: #1a2130; padding: 0.25rem 0.625rem; border: 1px solid #252d3a; font-size: 0.75rem; }
-.md-content table td { padding: 0.25rem 0.625rem; border: 1px solid #252d3a; font-size: 0.75rem; }
+.md-content table th { background: #253347; padding: 0.25rem 0.625rem; border: 1px solid #334155; font-size: 0.75rem; }
+.md-content table td { padding: 0.25rem 0.625rem; border: 1px solid #334155; font-size: 0.75rem; }
 .md-content li.task-done { color: #545d68; text-decoration: line-through; list-style: none; margin-left: -1rem; }
 .md-content li.task-done::before { content: "\2713 "; color: #3fb950; }
 .md-content li.task-open { list-style: none; margin-left: -1rem; }
@@ -58,33 +59,33 @@ dialog::backdrop { background: rgba(0,0,0,0.7); backdrop-filter: blur(4px); }
 /* === UTILITY CLASSES (plain CSS — @apply not supported by Tailwind CDN) === */
 
 /* Card Container */
-.card-base { background-color: #111820; border: 1px solid #252d3a; border-radius: 0.5rem; padding: 1.25rem; box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1); }
-.card-base.compact { padding: 1rem 1.25rem; }
+.card-base { background-color: #1e293b; border: 1px solid #334155; border-radius: 1rem; padding: 1.5rem; box-shadow: 0 4px 24px rgba(0,0,0,0.2), 0 1px 4px rgba(0,0,0,0.15); }
+.card-base.compact { padding: 0.875rem 1.25rem; }
 
 /* Navigation */
-.nav-btn { width: 100%; display: flex; align-items: center; gap: 0.625rem; padding: 0.5rem 0.75rem; border-radius: 0.375rem; font-size: 0.875rem; line-height: 1.25rem; font-weight: 500; cursor: pointer; transition: color 0.15s, background-color 0.15s; border: none; background: none; }
+.nav-btn { width: 100%; display: flex; align-items: center; gap: 0.75rem; padding: 0.625rem 0.875rem; border-radius: 0.5rem; font-size: 0.875rem; line-height: 1.25rem; font-weight: 500; cursor: pointer; transition: color 0.15s, background-color 0.15s; border: none; background: none; }
 .nav-btn:focus-visible { outline: none; box-shadow: 0 0 0 2px #60a5fa; }
 
 /* Dialog/Modal */
-.dialog-base { background-color: #111820; border: 1px solid #252d3a; border-radius: 0.75rem; box-shadow: 0 25px 50px -12px rgb(0 0 0 / 0.25); overflow: hidden; display: flex; flex-direction: column; }
-.dialog-header { display: flex; align-items: center; justify-content: space-between; padding: 1rem 1.25rem; border-bottom: 1px solid #252d3a; background-color: #1a2130; }
-.dialog-meta { display: flex; gap: 0.75rem; padding: 0.625rem 1.25rem; border-bottom: 1px solid #252d3a; flex-wrap: wrap; }
-.dialog-tabs { display: flex; border-bottom: 1px solid #252d3a; }
+.dialog-base { background-color: #1e293b; border: 1px solid #334155; border-radius: 1rem; box-shadow: 0 25px 50px -12px rgb(0 0 0 / 0.4); overflow: hidden; display: flex; flex-direction: column; }
+.dialog-header { display: flex; align-items: center; justify-content: space-between; padding: 1rem 1.5rem; border-bottom: 1px solid #334155; background-color: #162032; }
+.dialog-meta { display: flex; gap: 0.75rem; padding: 0.625rem 1.25rem; border-bottom: 1px solid #334155; flex-wrap: wrap; }
+.dialog-tabs { display: flex; border-bottom: 1px solid #334155; }
 
 /* Chat Messages */
 .msg-bubble { max-width: 75%; border-radius: 0.5rem; padding: 0.75rem 1rem; }
-.msg-sources { margin-top: 0.5rem; padding-top: 0.5rem; border-top: 1px solid #252d3a; }
-.source-tag { font-size: 10px; font-family: 'SF Mono', 'Fira Code', 'JetBrains Mono', 'Consolas', monospace; color: #60a5fa; background-color: #0a0e14; padding: 0.125rem 0.375rem; border-radius: 0.25rem; border: none; cursor: pointer; }
+.msg-sources { margin-top: 0.5rem; padding-top: 0.5rem; border-top: 1px solid #334155; }
+.source-tag { font-size: 10px; font-family: 'SF Mono', 'Fira Code', 'JetBrains Mono', 'Consolas', monospace; color: #60a5fa; background-color: #0f172a; padding: 0.125rem 0.375rem; border-radius: 0.25rem; border: none; cursor: pointer; }
 .source-tag:hover { text-decoration: underline; }
 .source-tag:focus-visible { outline: none; box-shadow: 0 0 0 1px #60a5fa; }
 
 /* Interactive Cards */
-.card-interactive { background-color: #111820; border: 1px solid #252d3a; border-radius: 0.5rem; padding: 1rem 1.25rem; text-align: left; cursor: pointer; transition: color 0.15s, background-color 0.15s, border-color 0.15s; box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1); }
+.card-interactive { background-color: #1e293b; border: 1px solid #334155; border-radius: 1rem; padding: 1rem 1.25rem; text-align: left; cursor: pointer; transition: color 0.15s, background-color 0.15s, border-color 0.15s; box-shadow: 0 4px 24px rgba(0,0,0,0.2), 0 1px 4px rgba(0,0,0,0.15); }
 .card-interactive:hover { border-color: #60a5fa; background-color: rgba(59,130,246,0.05); }
 .card-interactive:focus-visible { outline: none; box-shadow: 0 0 0 2px #60a5fa; }
 
 /* Form Inputs & Labels */
-.form-input { width: 100%; background-color: #0a0e14; border: 1px solid #252d3a; color: #e5e7eb; padding: 0.5rem 0.75rem; border-radius: 0.375rem; font-size: 0.75rem; line-height: 1rem; outline: none; transition: color 0.15s, border-color 0.15s; }
+.form-input { width: 100%; background-color: #0f172a; border: 1px solid #334155; color: #e5e7eb; padding: 0.5rem 0.75rem; border-radius: 0.375rem; font-size: 0.75rem; line-height: 1rem; outline: none; transition: color 0.15s, border-color 0.15s; }
 .form-input:focus { border-color: #60a5fa; box-shadow: 0 0 0 2px rgba(96,165,250,0.2); }
 .form-input.mono { font-family: 'SF Mono', 'Fira Code', 'JetBrains Mono', 'Consolas', monospace; }
 .form-input.error { border-color: #ef4444; box-shadow: 0 0 0 2px rgba(239,68,68,0.2); }
@@ -110,11 +111,11 @@ dialog::backdrop { background: rgba(0,0,0,0.7); backdrop-filter: blur(4px); }
 .label-text { font-size: 0.75rem; color: #6b7280; }
 
 /* Table Styling */
-.table-header { padding: 0.5rem 0.75rem; border-bottom: 1px solid #252d3a; position: sticky; top: 0; background-color: #111820; }
+.table-header { padding: 0.5rem 0.75rem; border-bottom: 1px solid #334155; position: sticky; top: 0; background-color: #1e293b; }
 .table-header.left { text-align: left; }
 .table-header.right { text-align: right; }
 .table-header.mono { font-family: 'SF Mono', 'Fira Code', 'JetBrains Mono', 'Consolas', monospace; font-size: 0.75rem; }
-.table-cell { padding: 0.5rem 0.75rem; border-bottom: 1px solid #252d3a; }
+.table-cell { padding: 0.5rem 0.75rem; border-bottom: 1px solid #334155; }
 .table-cell.mono { font-family: 'SF Mono', 'Fira Code', 'JetBrains Mono', 'Consolas', monospace; font-size: 0.75rem; }
 .table-cell.right { text-align: right; color: #6b7280; }
 .table-cell.muted { color: #4b5563; }
@@ -137,7 +138,7 @@ dialog::backdrop { background: rgba(0,0,0,0.7); backdrop-filter: blur(4px); }
 /* Icon Button */
 .icon-btn { width: 1.75rem; height: 1.75rem; display: flex; align-items: center; justify-content: center; border-radius: 0.375rem; transition: color 0.15s, background-color 0.15s; border: none; background: none; }
 .icon-btn-close { width: 1.75rem; height: 1.75rem; display: flex; align-items: center; justify-content: center; border-radius: 0.375rem; transition: color 0.15s, background-color 0.15s; border: none; background: none; color: #4b5563; }
-.icon-btn-close:hover { background-color: #111820; color: #d1d5db; }
+.icon-btn-close:hover { background-color: #1e293b; color: #d1d5db; }
 
 /* Link Styling */
 .link-base { color: #60a5fa; border-radius: 0.25rem; }
@@ -149,18 +150,18 @@ dialog::backdrop { background: rgba(0,0,0,0.7); backdrop-filter: blur(4px); }
 /* Button Base Classes */
 .btn-base { font-size: 0.75rem; line-height: 1rem; font-weight: 600; transition: color 0.15s, background-color 0.15s, border-color 0.15s; }
 .btn-base:focus-visible { outline: none; box-shadow: 0 0 0 2px #60a5fa; }
-.btn-primary { font-size: 0.75rem; line-height: 1rem; font-weight: 600; background-color: #3b82f6; color: #ffffff; padding: 0.5rem 1rem; border-radius: 0.375rem; border: none; cursor: pointer; transition: background-color 0.15s; }
+.btn-primary { font-size: 0.75rem; line-height: 1rem; font-weight: 600; background-color: #3b82f6; color: #ffffff; padding: 0.5rem 1rem; border-radius: 0.5rem; border: none; cursor: pointer; transition: background-color 0.15s; }
 .btn-primary:hover { background-color: #2563eb; }
 .btn-primary:disabled { opacity: 0.5; }
 .btn-primary:focus-visible { outline: none; box-shadow: 0 0 0 2px #93c5fd; }
-.btn-secondary { font-size: 0.75rem; line-height: 1rem; font-weight: 600; padding: 0.375rem 0.75rem; border: 1px solid #252d3a; border-radius: 0.375rem; background-color: #1a2130; color: #9ca3af; cursor: pointer; transition: background-color 0.15s; }
-.btn-secondary:hover { background-color: #252d3a; }
+.btn-secondary { font-size: 0.75rem; line-height: 1rem; font-weight: 600; padding: 0.375rem 0.75rem; border: 1px solid #334155; border-radius: 0.5rem; background-color: #253347; color: #94a3b8; cursor: pointer; transition: background-color 0.15s; }
+.btn-secondary:hover { background-color: #334155; }
 .btn-secondary:focus-visible { outline: none; box-shadow: 0 0 0 2px #60a5fa; }
 .btn-tertiary { font-size: 0.75rem; line-height: 1rem; font-weight: 600; padding: 0.25rem 0.75rem; border-radius: 0.375rem; border: none; background: none; cursor: pointer; transition: color 0.15s, background-color 0.15s; }
 .btn-tertiary:focus-visible { outline: none; box-shadow: 0 0 0 2px currentColor; }
 .btn-tab { font-size: 0.75rem; font-weight: 600; border-bottom: 2px solid transparent; text-transform: uppercase; letter-spacing: 0.05em; transition: color 0.15s, border-color 0.15s; background: none; border-top: none; border-left: none; border-right: none; cursor: pointer; }
 .btn-tab:focus-visible { outline: none; box-shadow: 0 0 0 2px #60a5fa; }
-.btn-pill { font-size: 0.75rem; font-family: 'SF Mono', 'Fira Code', 'JetBrains Mono', 'Consolas', monospace; background-color: #1a2130; color: #9ca3af; border: 1px solid #252d3a; padding: 0.125rem 0.625rem; border-radius: 9999px; cursor: pointer; transition: color 0.15s, background-color 0.15s, border-color 0.15s; }
+.btn-pill { font-size: 0.75rem; font-family: 'SF Mono', 'Fira Code', 'JetBrains Mono', 'Consolas', monospace; background-color: #253347; color: #9ca3af; border: 1px solid #334155; padding: 0.125rem 0.625rem; border-radius: 9999px; cursor: pointer; transition: color 0.15s, background-color 0.15s, border-color 0.15s; }
 .btn-pill:hover { background-color: rgba(59,130,246,0.1); color: #60a5fa; border-color: #60a5fa; }
 .btn-pill:focus-visible { outline: none; box-shadow: 0 0 0 2px #60a5fa; }
 
@@ -193,11 +194,11 @@ dialog::backdrop { background: rgba(0,0,0,0.7); backdrop-filter: blur(4px); }
 .text-xs-mono { font-size: 0.75rem; font-family: 'SF Mono', 'Fira Code', 'JetBrains Mono', 'Consolas', monospace; }
 .text-sm-small { font-size: 11px; color: #4b5563; font-family: 'SF Mono', 'Fira Code', 'JetBrains Mono', 'Consolas', monospace; }
 .stat-label { font-size: 11px; color: #6b7280; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; }
-.nav-badge { font-size: 11px; padding: 0 0.375rem; border-radius: 9999px; font-family: 'SF Mono', 'Fira Code', 'JetBrains Mono', 'Consolas', monospace; background-color: #1a2130; color: #6b7280; }
+.nav-badge { font-size: 11px; padding: 0 0.375rem; border-radius: 9999px; font-family: 'SF Mono', 'Fira Code', 'JetBrains Mono', 'Consolas', monospace; background-color: #253347; color: #6b7280; }
 
 /* Heading Utilities */
-.heading-xl { font-size: 1.25rem; line-height: 1.75rem; font-weight: 700; margin-bottom: 1.25rem; letter-spacing: -0.025em; }
-.heading-xl-tight { font-size: 1.25rem; line-height: 1.75rem; font-weight: 700; letter-spacing: -0.025em; }
+.heading-xl { font-size: 1.5rem; line-height: 2rem; font-weight: 700; margin-bottom: 1.5rem; letter-spacing: -0.025em; }
+.heading-xl-tight { font-size: 1.5rem; line-height: 2rem; font-weight: 700; letter-spacing: -0.025em; }
 .heading-lg { font-size: 1.125rem; line-height: 1.75rem; font-weight: 700; }
 
 /* Stat & Help Text Utilities */
@@ -207,14 +208,29 @@ dialog::backdrop { background: rgba(0,0,0,0.7); backdrop-filter: blur(4px); }
 .text-hint { font-size: 0.75rem; color: #9ca3af; }
 
 /* Badge/Tag Utilities */
-.tag-badge { display: inline-block; font-size: 10px; padding: 0 0.375rem; border-radius: 9999px; background-color: #1a2130; color: #6b7280; border: 1px solid #252d3a; }
+.tag-badge { display: inline-block; font-size: 10px; padding: 0 0.375rem; border-radius: 9999px; background-color: #253347; color: #6b7280; border: 1px solid #334155; }
 
 /* Empty State */
 .empty-state { font-size: 0.875rem; color: #4b5563; text-align: center; padding: 1rem 0; }
 
 /* Progress Bar */
-.progress-bar { height: 0.5rem; background-color: #1a2130; border-radius: 9999px; overflow: hidden; }
+.progress-bar { height: 0.5rem; background-color: #253347; border-radius: 9999px; overflow: hidden; }
 .progress-fill { height: 100%; border-radius: 9999px; transition: all 0.5s; }
+
+/* Page transitions */
+@keyframes pageIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+.page-fade { animation: pageIn 0.18s ease-out; }
+
+/* Toast notifications */
+@keyframes toastIn { from { opacity: 0; transform: translateX(1rem); } to { opacity: 1; transform: translateX(0); } }
+.toast-item { animation: toastIn 0.2s ease-out; }
+
+/* Skeleton loaders */
+@keyframes shimmer { 0% { background-position: -400px 0; } 100% { background-position: 400px 0; } }
+.skeleton { background: linear-gradient(90deg, #1e293b 25%, #334155 50%, #1e293b 75%); background-size: 800px 100%; animation: shimmer 1.5s infinite; border-radius: 0.5rem; }
+
+/* Chat textarea auto-resize */
+.chat-textarea { resize: none; overflow-y: hidden; max-height: 120px; transition: height 0.1s; line-height: 1.5rem; }
 
 /* Responsive Sidebar */
 .sidebar-overlay { display: none; }
@@ -224,8 +240,8 @@ dialog::backdrop { background: rgba(0,0,0,0.7); backdrop-filter: blur(4px); }
   .sidebar.open { transform: translateX(0); }
   .sidebar-overlay { display: none; position: fixed; inset: 0; z-index: 30; background: rgba(0,0,0,0.5); backdrop-filter: blur(2px); }
   .sidebar-overlay.open { display: block; }
-  .mobile-menu-btn { display: flex; align-items: center; justify-content: center; width: 2.5rem; height: 2.5rem; border-radius: 0.375rem; border: 1px solid #252d3a; background: #111820; color: #9ca3af; cursor: pointer; flex-shrink: 0; }
-  .mobile-menu-btn:hover { background: #1a2130; color: #e5e7eb; }
+  .mobile-menu-btn { display: flex; align-items: center; justify-content: center; width: 2.5rem; height: 2.5rem; border-radius: 0.375rem; border: 1px solid #334155; background: #1e293b; color: #9ca3af; cursor: pointer; flex-shrink: 0; }
+  .mobile-menu-btn:hover { background: #253347; color: #e5e7eb; }
 }
 
 </style>
@@ -258,10 +274,18 @@ dialog::backdrop { background: rgba(0,0,0,0.7); backdrop-filter: blur(4px); }
     <!-- Mobile Sidebar Overlay -->
     <div class="sidebar-overlay" :class="{ open: sidebarOpen }" @click="sidebarOpen = false"></div>
     <!-- Sidebar Navigation -->
-    <nav class="sidebar w-60 min-w-[240px] bg-dark-800 border-r border-dark-600 flex flex-col" :class="{ open: sidebarOpen }" aria-label="Main navigation">
-      <div class="p-5 border-b border-dark-600">
-        <h1 class="text-xl font-bold tracking-tight">{{ info.agent_name || 'Dashboard' }}</h1>
-        <p class="text-help">{{ info.user_name }}'s digital twin</p>
+    <nav class="sidebar w-64 min-w-[256px] bg-dark-800 border-r border-dark-600 flex flex-col" :class="{ open: sidebarOpen }" aria-label="Main navigation">
+      <div class="px-5 py-4 border-b border-dark-600 flex items-center gap-3">
+        <div class="relative flex-shrink-0">
+          <div class="w-9 h-9 rounded-xl bg-blue-500/20 flex items-center justify-center text-xl" aria-hidden="true">&#129504;</div>
+          <span class="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 border-dark-800"
+            :class="overview.index_health==='ok'?'bg-green-500':overview.index_health==='stale'?'bg-yellow-400':'bg-gray-600'"
+            :title="'Index: '+(overview.index_health||'unknown')"></span>
+        </div>
+        <div>
+          <h1 class="text-sm font-bold tracking-tight">{{ info.agent_name || 'kai' }}</h1>
+          <p class="text-[11px] text-gray-500">{{ info.user_name }}'s brain</p>
+        </div>
       </div>
       <ul class="p-3 flex-1 space-y-0.5" role="list">
         <template v-for="(nav, i) in navItems" :key="nav.page || 'div-'+i">
@@ -269,7 +293,7 @@ dialog::backdrop { background: rgba(0,0,0,0.7); backdrop-filter: blur(4px); }
           <li v-else>
             <button @click="page = nav.page; sidebarOpen = false" type="button"
               class="nav-btn"
-              :class="page === nav.page ? 'bg-blue-500/10 text-blue-400' : 'text-gray-500 hover:bg-dark-700 hover:text-gray-300'"
+              :class="page === nav.page ? 'bg-blue-500/20 text-blue-400 font-semibold' : 'text-gray-400 hover:bg-dark-700/70 hover:text-gray-200'"
               :aria-current="page === nav.page ? 'page' : undefined">
               <span class="text-base w-5 text-center" aria-hidden="true" v-html="nav.icon"></span>
               {{ nav.label }}
@@ -283,127 +307,151 @@ dialog::backdrop { background: rgba(0,0,0,0.7); backdrop-filter: blur(4px); }
       </div>
     </nav>
 
-    <!-- Main Content -->
-    <main id="main-content" class="flex-1 overflow-y-auto p-4 md:p-6 lg:p-8" tabindex="-1">
+    <!-- Right column: top header + scrollable content -->
+    <div class="flex-1 flex flex-col min-w-0 overflow-hidden">
 
-      <!-- Mobile Header -->
-      <div class="flex items-center gap-3 mb-4 md:hidden">
-        <button @click="sidebarOpen = !sidebarOpen" type="button" class="mobile-menu-btn" aria-label="Toggle menu">
-          <span aria-hidden="true" class="text-lg">&#9776;</span>
-        </button>
-        <span class="text-sm font-semibold text-gray-400 uppercase tracking-wider">{{ page }}</span>
+    <!-- Top Header -->
+    <header class="bg-dark-800 border-b border-dark-600 h-14 flex items-center px-5 gap-4 flex-shrink-0 z-10">
+      <button @click="sidebarOpen = !sidebarOpen" type="button" class="mobile-menu-btn" aria-label="Toggle menu">
+        <span aria-hidden="true" class="text-lg">&#9776;</span>
+      </button>
+      <span class="text-sm font-semibold text-gray-300 capitalize hidden md:inline">{{ navItems.find(n => n.page === page)?.label || page }}</span>
+      <div class="flex-1"></div>
+      <!-- Provider + Embeddings -->
+      <div class="items-center gap-4 hidden lg:flex">
+        <span v-if="llmService" class="flex items-center gap-1.5 text-xs" :title="llmService.tooltip">
+          <span class="w-1.5 h-1.5 rounded-full flex-shrink-0" :class="llmService.status==='connected'?'bg-green-500':'bg-gray-600'"></span>
+          <span class="text-gray-400 font-medium">{{ llmService.value }}</span>
+        </span>
+        <span v-if="embedService" class="flex items-center gap-1.5 text-xs" :title="embedService.tooltip">
+          <span class="w-1.5 h-1.5 rounded-full flex-shrink-0" :class="embedService.status==='connected'?'bg-blue-400':'bg-gray-600'"></span>
+          <span class="text-gray-400 font-medium">{{ embedService.value }}</span>
+        </span>
       </div>
+      <div v-if="llmService || embedService" class="w-px h-5 bg-dark-600 hidden lg:block"></div>
+      <!-- Compact Brain Sync -->
+      <div v-if="syncConfigured" class="items-center gap-0.5 hidden sm:flex" role="toolbar" aria-label="Brain sync">
+        <button @click="doSync('pull')" :disabled="syncing" type="button"
+          class="w-7 h-7 flex items-center justify-center rounded-md text-gray-500 hover:text-blue-400 hover:bg-dark-700/60 transition-colors disabled:opacity-40 font-bold text-sm"
+          title="Pull from remote" aria-label="Pull brain from remote">&#8595;</button>
+        <button @click="doSync('push')" :disabled="syncing" type="button"
+          class="w-7 h-7 flex items-center justify-center rounded-md text-gray-500 hover:text-green-400 hover:bg-dark-700/60 transition-colors disabled:opacity-40 font-bold text-sm"
+          title="Push to remote" aria-label="Push brain to remote">&#8593;</button>
+        <span v-if="syncing" class="text-gray-600 text-xs ml-0.5 animate-spin inline-block">&#9696;</span>
+      </div>
+      <div class="w-px h-5 bg-dark-600"></div>
+      <!-- User avatar -->
+      <div class="flex items-center gap-2">
+        <div class="w-8 h-8 rounded-full bg-blue-500/20 flex items-center justify-center text-blue-400 text-sm font-bold flex-shrink-0" aria-hidden="true">{{ (info.user_name || 'U')[0].toUpperCase() }}</div>
+        <span class="text-xs text-gray-400 hidden sm:block">{{ info.user_name }}</span>
+      </div>
+    </header>
+
+    <!-- Main Content -->
+    <main id="main-content" class="flex-1 overflow-y-auto p-5 md:p-6 lg:p-8" tabindex="-1">
+
+      <div :key="page" class="page-fade">
 
       <!-- Overview -->
       <section v-if="page === 'overview'" aria-labelledby="overview-heading">
         <h2 id="overview-heading" class="heading-xl">Overview</h2>
 
-        <!-- Status Overview -->
-        <div v-if="services.length" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 mb-6">
-          <div v-for="svc in services" :key="svc.name" class="card-base px-3 py-2.5 flex items-center gap-2.5 group cursor-help" :title="svc.tooltip">
-            <span class="w-2 h-2 rounded-full flex-shrink-0"
-              :class="{'bg-green-500 shadow-[0_0_6px_rgba(63,185,80,0.4)]': svc.status==='connected', 'bg-red-500 shadow-[0_0_6px_rgba(248,81,73,0.4)]': svc.status==='disconnected', 'bg-gray-600': svc.status==='not_configured'}"></span>
-            <div class="flex-1 min-w-0">
-              <div class="text-[11px] font-semibold text-gray-400 group-hover:text-gray-300">{{ svc.name }}</div>
-              <div class="text-xs font-medium text-gray-200 truncate group-hover:text-gray-100">{{ svc.value }}</div>
-            </div>
-          </div>
-        </div>
-
-        <!-- Sync Card -->
-        <section v-if="syncConfigured" class="card-base mb-6" aria-labelledby="sync-heading">
-          <div class="flex items-center justify-between mb-3">
-            <h3 id="sync-heading" class="section-label">Brain Sync</h3>
-            <span class="text-sm-small">{{ syncBackend }}</span>
-          </div>
-          <div class="flex gap-2 mb-2" role="toolbar" aria-label="Sync actions">
-            <button v-for="btn in syncButtons" :key="btn.action"
-              @click="btn.action === 'status' ? loadSyncStatus() : doSync(btn.action)"
-              :disabled="syncing" type="button"
-              class="px-3 py-1.5 text-xs font-semibold border border-dark-600 rounded-md bg-dark-700 disabled:opacity-50 transition-colors focus-visible:outline-none focus-visible:ring-2"
-              :class="syncButtonClasses(btn.color)"
-              :aria-label="btn.ariaLabel">
-              <span v-html="btn.icon"></span> {{ btn.label }}
-            </button>
-          </div>
-          <div aria-live="polite" class="text-[11px] min-h-[16px]" :class="syncError ? 'text-error' : 'text-muted'" v-html="syncMsg"></div>
-          <div v-if="syncDetail" class="text-xs mt-2" v-html="syncDetail" aria-live="polite"></div>
-        </section>
-
         <!-- Stats -->
-        <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2 mb-6" role="list" aria-label="Brain statistics">
-          <div class="card-base px-2.5 py-2" role="listitem">
-            <div class="text-[10px] text-gray-500 uppercase tracking-wider font-semibold" id="stat-files">Files</div>
-            <div class="text-lg font-semibold text-blue-400 mt-1" aria-labelledby="stat-files">{{ overview.total_files || 0 }}</div>
-          </div>
-          <div class="card-base px-2.5 py-2" role="listitem">
-            <div class="text-[10px] text-gray-500 uppercase tracking-wider font-semibold" id="stat-words">Words</div>
-            <div class="text-lg font-semibold text-green-500 mt-1" aria-labelledby="stat-words">{{ overview.total_words || 0 }}</div>
-          </div>
-          <div class="card-base px-2.5 py-2" role="listitem">
-            <div class="text-[10px] text-gray-500 uppercase tracking-wider font-semibold" id="stat-chunks">Chunks</div>
-            <div class="text-lg font-semibold text-purple-400 mt-1" aria-labelledby="stat-chunks">{{ overview.total_chunks || 0 }}</div>
-          </div>
-          <div class="card-base px-2.5 py-2" role="listitem">
-            <div class="text-[10px] text-gray-500 uppercase tracking-wider font-semibold" id="stat-tags">Tags</div>
-            <div class="text-lg font-semibold text-yellow-500 mt-1" aria-labelledby="stat-tags">{{ overview.unique_tags || 0 }}</div>
-          </div>
-          <div class="card-base px-2.5 py-2" role="listitem" :title="overview.index_health === 'ok' ? 'Index is healthy' : overview.index_health === 'stale' ? 'Index needs rebuild' : 'No index found'">
-            <div class="text-[10px] text-gray-500 uppercase tracking-wider font-semibold">Index</div>
-            <div class="mt-1 flex items-center gap-1.5 justify-center">
-              <span class="w-1.5 h-1.5 rounded-full flex-shrink-0"
-                :class="{'bg-green-500': overview.index_health === 'ok', 'bg-yellow-500': overview.index_health === 'stale', 'bg-gray-600': overview.index_health !== 'ok' && overview.index_health !== 'stale'}"></span>
-              <span class="text-xs font-medium capitalize">{{ overview.index_health || '—' }}</span>
+        <div v-if="initialLoading" class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+          <div v-for="i in 4" :key="i" class="card-base"><div class="skeleton h-24 w-full"></div></div>
+        </div>
+        <div v-else class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6" role="list" aria-label="Brain statistics">
+          <!-- Files -->
+          <div class="card-base" role="listitem">
+            <div class="flex items-center gap-3">
+              <div class="w-11 h-11 rounded-xl flex items-center justify-center flex-shrink-0 bg-blue-500/15 text-blue-400 text-lg" aria-hidden="true">&#128196;</div>
+              <div>
+                <div class="stat-label" id="stat-files">Files</div>
+                <div class="text-3xl font-extrabold text-blue-400 mt-0.5 font-mono" aria-labelledby="stat-files">{{ overview.total_files || 0 }}</div>
+              </div>
             </div>
+            <svg viewBox="0 0 100 24" class="w-full mt-3" style="height:28px" preserveAspectRatio="none" aria-hidden="true">
+              <path :d="sparklineArea(spark7.files)" fill="rgba(59,130,246,0.15)" />
+              <path :d="sparklineLine(spark7.files)" fill="none" stroke="#3b82f6" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
+            </svg>
+          </div>
+          <!-- Words -->
+          <div class="card-base" role="listitem">
+            <div class="flex items-center gap-3">
+              <div class="w-11 h-11 rounded-xl flex items-center justify-center flex-shrink-0 bg-green-500/15 text-green-400 text-lg" aria-hidden="true">&#128209;</div>
+              <div>
+                <div class="stat-label" id="stat-words">Words</div>
+                <div class="text-3xl font-extrabold text-green-400 mt-0.5 font-mono" aria-labelledby="stat-words">{{ overview.total_words || 0 }}</div>
+              </div>
+            </div>
+            <svg viewBox="0 0 100 24" class="w-full mt-3" style="height:28px" preserveAspectRatio="none" aria-hidden="true">
+              <path :d="sparklineArea(spark7.words)" fill="rgba(16,185,129,0.15)" />
+              <path :d="sparklineLine(spark7.words)" fill="none" stroke="#10b981" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
+            </svg>
+          </div>
+          <!-- Chunks -->
+          <div class="card-base" role="listitem">
+            <div class="flex items-center gap-3">
+              <div class="w-11 h-11 rounded-xl flex items-center justify-center flex-shrink-0 bg-purple-500/15 text-purple-400 text-lg" aria-hidden="true">&#9712;</div>
+              <div>
+                <div class="stat-label" id="stat-chunks">Chunks</div>
+                <div class="text-3xl font-extrabold text-purple-400 mt-0.5 font-mono" aria-labelledby="stat-chunks">{{ overview.total_chunks || 0 }}</div>
+              </div>
+            </div>
+            <svg viewBox="0 0 100 24" class="w-full mt-3" style="height:28px" preserveAspectRatio="none" aria-hidden="true">
+              <path :d="sparklineArea(spark7.files)" fill="rgba(139,92,246,0.15)" />
+              <path :d="sparklineLine(spark7.files)" fill="none" stroke="#8b5cf6" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
+            </svg>
+          </div>
+          <!-- Tags -->
+          <div class="card-base" role="listitem">
+            <div class="flex items-center gap-3">
+              <div class="w-11 h-11 rounded-xl flex items-center justify-center flex-shrink-0 bg-yellow-500/15 text-yellow-400 text-lg" aria-hidden="true">&#127991;</div>
+              <div>
+                <div class="stat-label" id="stat-tags">Tags</div>
+                <div class="text-3xl font-extrabold text-yellow-400 mt-0.5 font-mono" aria-labelledby="stat-tags">{{ overview.unique_tags || 0 }}</div>
+              </div>
+            </div>
+            <svg viewBox="0 0 100 24" class="w-full mt-3" style="height:28px" preserveAspectRatio="none" aria-hidden="true">
+              <path :d="sparklineArea(spark7.files)" fill="rgba(245,158,11,0.15)" />
+              <path :d="sparklineLine(spark7.files)" fill="none" stroke="#f59e0b" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
+            </svg>
           </div>
         </div>
 
 
-        <div class="grid-1-2">
-          <!-- Categories -->
-          <section class="card-base" aria-labelledby="cats-heading">
-            <h3 id="cats-heading" class="section-label mb-3">Categories</h3>
-            <div class="space-y-2">
-              <div v-for="[cat, count] in sortedCategories" :key="cat" class="flex-center-2p5">
-                <span class="w-20 text-right text-xs font-mono text-gray-500" :id="'cat-'+cat">{{ cat }}</span>
-                <div class="flex-1 h-2 bg-dark-700 rounded-full overflow-hidden" role="progressbar" :aria-valuenow="count" :aria-valuemax="maxCategory" :aria-labelledby="'cat-'+cat">
-                  <div class="h-full bg-blue-400 rounded-full transition-all duration-500" :style="{width: (count/maxCategory*100)+'%'}"></div>
-                </div>
-                <span class="w-7 text-xs font-mono text-gray-600" aria-hidden="true">{{ count }}</span>
-              </div>
+        <div v-if="initialLoading" class="grid-1-2 mb-6">
+          <div class="card-base"><div class="skeleton h-56 w-full"></div></div>
+          <div class="card-base"><div class="skeleton h-56 w-full"></div></div>
+        </div>
+        <div v-else class="grid-1-2 mb-6">
+          <!-- Donut: Category Distribution -->
+          <section class="card-base" aria-labelledby="chart-cat-heading">
+            <h3 id="chart-cat-heading" class="section-label mb-4">Category Distribution</h3>
+            <div style="position:relative;height:210px">
+              <canvas id="chart-donut" aria-label="Brain file category distribution chart"></canvas>
             </div>
             <empty-state v-if="!sortedCategories.length" message="No files yet."></empty-state>
           </section>
-          <!-- Tags -->
-          <section class="card-base" aria-labelledby="tags-heading">
-            <h3 id="tags-heading" class="section-label mb-3">Top Tags</h3>
-            <div class="flex-wrap-gap" role="list" aria-label="Tags">
-              <button v-for="t in tags" :key="t.name" @click="searchFromTag(t.name)" type="button" role="listitem"
-                class="btn-pill"
-                :aria-label="t.name + ', ' + t.count + ' files'">
-                {{ t.name }} <span class="text-gray-600 ml-1" aria-hidden="true">{{ t.count }}</span>
-              </button>
+          <!-- Bar: Activity Timeline -->
+          <section class="card-base" aria-labelledby="chart-act-heading">
+            <h3 id="chart-act-heading" class="section-label mb-4">Activity — Last 14 Days</h3>
+            <div style="position:relative;height:210px">
+              <canvas id="chart-activity" aria-label="Brain activity over last 14 days chart"></canvas>
             </div>
-            <empty-state v-if="!tags.length" message="No tags yet."></empty-state>
           </section>
         </div>
-
-        <!-- Connect / MCP Setup -->
-        <section class="card-base mb-6" aria-labelledby="connect-heading">
-          <h3 id="connect-heading" class="section-label mb-3">Connect MCP</h3>
-          <p class="text-xs text-gray-500 mb-3">Add to your MCP config to connect from Claude Code, Cursor, or VS Code.</p>
-          <div class="space-y-3">
-            <div v-for="snippet in connectSnippets" :key="snippet.label">
-              <div class="flex items-center justify-between mb-1">
-                <span class="text-[11px] font-semibold text-gray-400">{{ snippet.label }}</span>
-                <button @click="copySnippet(snippet.code)" type="button"
-                  class="text-[10px] text-gray-500 hover:text-blue-400 transition px-1.5 py-0.5 rounded hover:bg-dark-700">
-                  {{ copied === snippet.label ? 'Copied!' : 'Copy' }}
-                </button>
-              </div>
-              <pre class="text-[11px] font-mono bg-dark-900 border border-dark-600 rounded p-2.5 overflow-x-auto text-gray-300 leading-relaxed whitespace-pre">{{ snippet.code }}</pre>
-            </div>
+        <!-- Tags -->
+        <section class="card-base mb-6" aria-labelledby="tags-heading">
+          <h3 id="tags-heading" class="section-label mb-3">Top Tags</h3>
+          <div class="flex-wrap-gap" role="list" aria-label="Tags">
+            <button v-for="t in tags" :key="t.name" @click="searchFromTag(t.name)" type="button" role="listitem"
+              class="btn-pill"
+              :aria-label="t.name + ', ' + t.count + ' files'">
+              {{ t.name }} <span class="text-gray-600 ml-1" aria-hidden="true">{{ t.count }}</span>
+            </button>
           </div>
+          <empty-state v-if="!tags.length" message="No tags yet."></empty-state>
         </section>
 
         <!-- Activity -->
@@ -412,7 +460,10 @@ dialog::backdrop { background: rgba(0,0,0,0.7); backdrop-filter: blur(4px); }
             <h3 id="activity-heading" class="text-[11px] font-semibold uppercase tracking-wider text-gray-500">Recent Activity</h3>
             <span class="text-sm-small">Last 20</span>
           </div>
-          <div class="max-h-[360px] overflow-y-auto" tabindex="0" role="region" aria-labelledby="activity-heading">
+          <div v-if="initialLoading" class="space-y-2">
+            <div v-for="i in 5" :key="i" class="skeleton h-8 w-full"></div>
+          </div>
+          <div v-else class="max-h-[360px] overflow-y-auto" tabindex="0" role="region" aria-labelledby="activity-heading">
             <table class="w-full text-sm" aria-label="Recent brain file activity">
               <thead><tr class="text-gray-600 text-[11px] uppercase tracking-wider">
                 <th scope="col" class="text-left py-2 px-3 border-b border-dark-600 sticky top-0 bg-dark-800">File</th>
@@ -438,20 +489,37 @@ dialog::backdrop { background: rgba(0,0,0,0.7); backdrop-filter: blur(4px); }
 
       <!-- Files -->
       <section v-if="page === 'files'" aria-labelledby="files-heading">
-        <h2 id="files-heading" class="heading-xl">Brain Files</h2>
+        <div class="flex items-center justify-between mb-4">
+          <h2 id="files-heading" class="heading-xl-tight">Brain Files</h2>
+          <span class="text-sm-small" aria-live="polite">{{ filteredFiles.length }} of {{ files.length }} files</span>
+        </div>
         <div class="card-base">
+          <div class="mb-3">
+            <label for="files-filter" class="sr-only">Filter files</label>
+            <input id="files-filter" v-model="filesFilter" type="search" placeholder="Filter by path or tag…" class="form-input" aria-label="Filter files">
+          </div>
           <div class="max-h-[600px] overflow-y-auto" tabindex="0" role="region" aria-labelledby="files-heading">
             <table class="w-full text-sm" aria-label="All brain files">
               <thead><tr class="text-gray-600 text-[11px] uppercase tracking-wider">
-                <th scope="col" class="text-left py-2 px-3 border-b border-dark-600 sticky top-0 bg-dark-800">Path</th>
+                <th scope="col" class="text-left py-2 px-3 border-b border-dark-600 sticky top-0 bg-dark-800">
+                  <button @click="toggleSort('path')" type="button" class="flex items-center gap-1 hover:text-gray-400 transition-colors focus-visible:outline-none">Path <span class="text-gray-700">{{ sortIcon('path') }}</span></button>
+                </th>
                 <th scope="col" class="text-left py-2 px-3 border-b border-dark-600 sticky top-0 bg-dark-800">Tags</th>
-                <th scope="col" class="text-left py-2 px-3 border-b border-dark-600 sticky top-0 bg-dark-800">Confidence</th>
-                <th scope="col" class="text-right py-2 px-3 border-b border-dark-600 sticky top-0 bg-dark-800">Words</th>
-                <th scope="col" class="text-right py-2 px-3 border-b border-dark-600 sticky top-0 bg-dark-800">Views</th>
-                <th scope="col" class="text-right py-2 px-3 border-b border-dark-600 sticky top-0 bg-dark-800">Updated</th>
+                <th scope="col" class="text-left py-2 px-3 border-b border-dark-600 sticky top-0 bg-dark-800">
+                  <button @click="toggleSort('confidence')" type="button" class="flex items-center gap-1 hover:text-gray-400 transition-colors focus-visible:outline-none">Confidence <span class="text-gray-700">{{ sortIcon('confidence') }}</span></button>
+                </th>
+                <th scope="col" class="text-right py-2 px-3 border-b border-dark-600 sticky top-0 bg-dark-800">
+                  <button @click="toggleSort('word_count')" type="button" class="flex items-center gap-1 ml-auto hover:text-gray-400 transition-colors focus-visible:outline-none">Words <span class="text-gray-700">{{ sortIcon('word_count') }}</span></button>
+                </th>
+                <th scope="col" class="text-right py-2 px-3 border-b border-dark-600 sticky top-0 bg-dark-800">
+                  <button @click="toggleSort('access_count')" type="button" class="flex items-center gap-1 ml-auto hover:text-gray-400 transition-colors focus-visible:outline-none">Views <span class="text-gray-700">{{ sortIcon('access_count') }}</span></button>
+                </th>
+                <th scope="col" class="text-right py-2 px-3 border-b border-dark-600 sticky top-0 bg-dark-800">
+                  <button @click="toggleSort('updated')" type="button" class="flex items-center gap-1 ml-auto hover:text-gray-400 transition-colors focus-visible:outline-none">Updated <span class="text-gray-700">{{ sortIcon('updated') }}</span></button>
+                </th>
               </tr></thead>
               <tbody>
-                <tr v-for="f in files" :key="f.path" class="hover:bg-dark-700 transition-colors">
+                <tr v-for="f in filteredFiles" :key="f.path" class="hover:bg-dark-700 transition-colors">
                   <td class="py-2 px-3 border-b border-dark-600 font-mono text-xs">
                     <button type="button" @click="viewFile(f.path)" class="link-btn">{{ f.path }}</button>
                   </td>
@@ -470,7 +538,8 @@ dialog::backdrop { background: rgba(0,0,0,0.7); backdrop-filter: blur(4px); }
                 </tr>
               </tbody>
             </table>
-            <empty-state v-if="!files.length" message="No files."></empty-state>
+            <empty-state v-if="!filteredFiles.length && filesFilter" message="No files match your filter."></empty-state>
+            <empty-state v-else-if="!files.length" message="No files."></empty-state>
           </div>
         </div>
       </section>
@@ -508,7 +577,7 @@ dialog::backdrop { background: rgba(0,0,0,0.7); backdrop-filter: blur(4px); }
 
       <!-- Chat -->
       <section v-if="page === 'chat'" aria-labelledby="chat-heading">
-        <div class="flex-center-4 mb-5">
+        <div class="flex items-center gap-3 mb-5 flex-wrap">
           <h2 id="chat-heading" class="heading-xl-tight">Chat</h2>
           <div class="flex bg-dark-700 rounded-lg p-0.5 border border-dark-600" role="radiogroup" aria-label="Chat mode">
             <button type="button" @click="chatMode = 'brain'"
@@ -525,8 +594,9 @@ dialog::backdrop { background: rgba(0,0,0,0.7); backdrop-filter: blur(4px); }
             </button>
           </div>
           <span class="text-[11px] text-gray-600">{{ chatMode === 'brain' ? 'Answers use brain knowledge' : 'Direct LLM chat, no brain context' }}</span>
+          <button v-if="chatMessages.length" @click="chatMessages = []" type="button" class="btn-secondary px-3 py-1 ml-auto" aria-label="Clear chat history">Clear</button>
         </div>
-        <div class="bg-dark-800 border border-dark-600 rounded-lg shadow flex flex-col" style="height: calc(100vh - 160px)">
+        <div class="bg-dark-800 border border-dark-600 rounded-xl shadow flex flex-col" style="height: calc(100vh - 14rem)">
           <!-- Messages -->
           <div ref="chatScroll" class="flex-1 overflow-y-auto p-5 space-y-4" role="log" aria-label="Chat messages" aria-live="polite">
             <div v-if="!chatMessages.length" class="text-sm text-gray-600 text-center py-12">
@@ -572,17 +642,21 @@ dialog::backdrop { background: rgba(0,0,0,0.7); backdrop-filter: blur(4px); }
           </div>
           <!-- Input -->
           <div class="border-t border-dark-600 p-4">
-            <form @submit.prevent="sendChat" class="flex gap-3">
-              <label for="chat-input" class="sr-only">Message</label>
-              <input id="chat-input" v-model="chatInput" type="text" :placeholder="chatMode === 'brain' ? 'Ask about your brain knowledge...' : 'Chat freely...'"
-                :disabled="chatLoading" autocomplete="off"
-                class="flex-1 bg-dark-900 border border-dark-600 text-gray-200 px-4 py-3 rounded-lg font-mono text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-400/20 disabled:opacity-50 transition-colors">
-              <button type="submit" :disabled="chatLoading || !chatInput.trim()"
-                class="btn-base bg-blue-500 text-white px-6 py-3 rounded-lg text-sm hover:bg-blue-600 disabled:opacity-50 focus-visible:ring-blue-300"
+            <div class="flex gap-3 items-end">
+              <label for="chat-input" class="sr-only">Message (Enter to send, Shift+Enter for new line)</label>
+              <textarea id="chat-input" ref="chatInputRef" v-model="chatInput"
+                :placeholder="chatMode === 'brain' ? 'Ask about your brain knowledge… (Enter to send)' : 'Chat freely… (Enter to send)'"
+                :disabled="chatLoading" autocomplete="off" rows="1"
+                @input="autoResizeChat" @keydown.enter.exact.prevent="sendChat"
+                class="chat-textarea flex-1 bg-dark-900 border border-dark-600 text-gray-200 px-4 py-3 rounded-lg font-mono text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-400/20 disabled:opacity-50 transition-colors"
+                aria-describedby="chat-hint"></textarea>
+              <button type="button" @click="sendChat" :disabled="chatLoading || !chatInput.trim()"
+                class="btn-base bg-blue-500 text-white px-6 py-3 rounded-lg text-sm hover:bg-blue-600 disabled:opacity-50 focus-visible:ring-blue-300 flex-shrink-0"
                 aria-label="Send message">
                 Send
               </button>
-            </form>
+            </div>
+            <p id="chat-hint" class="text-[10px] text-gray-700 mt-1.5">Shift+Enter for new line</p>
           </div>
         </div>
       </section>
@@ -734,6 +808,25 @@ dialog::backdrop { background: rgba(0,0,0,0.7); backdrop-filter: blur(4px); }
 
       <section v-if="page === 'tools'" aria-labelledby="tools-heading">
         <h2 id="tools-heading" class="heading-xl">MCP Tools</h2>
+
+        <!-- Connect MCP -->
+        <section class="card-base mb-6" aria-labelledby="connect-heading">
+          <h3 id="connect-heading" class="section-label mb-4">Connect MCP</h3>
+          <p class="text-xs text-gray-500 mb-4">Add to your MCP config to connect from Claude Code, Cursor, or VS Code.</p>
+          <div class="space-y-4">
+            <div v-for="snippet in connectSnippets" :key="snippet.label">
+              <div class="flex items-center justify-between mb-1.5">
+                <span class="text-[11px] font-semibold text-gray-400">{{ snippet.label }}</span>
+                <button @click="copySnippet(snippet.code)" type="button"
+                  class="text-[10px] font-semibold px-2 py-0.5 rounded-md border border-dark-600 text-gray-500 hover:text-blue-400 hover:border-blue-400/50 transition-colors">
+                  {{ copied === snippet.label ? '&#10003; Copied' : 'Copy' }}
+                </button>
+              </div>
+              <pre class="text-[11px] font-mono bg-dark-900 border border-dark-600 rounded-lg p-3 overflow-x-auto text-gray-300 leading-relaxed whitespace-pre">{{ snippet.code }}</pre>
+            </div>
+          </div>
+        </section>
+
         <div class="grid-1-2-gap" role="list" aria-label="Available tools">
           <button v-for="t in tools" :key="t.name" @click="openTool(t)" type="button" role="listitem"
             class="card-interactive"
@@ -802,7 +895,7 @@ dialog::backdrop { background: rgba(0,0,0,0.7); backdrop-filter: blur(4px); }
           <span style="font-size:11px;color:#374151;margin-left:0.25rem">scroll=zoom &bull; drag=rotate &bull; right-drag=pan</span>
         </div>
         <!-- 3D graph container -->
-        <div style="position:relative;width:100%;height:650px;border-radius:0.75rem;overflow:hidden;background:#0a0a0f;border:1px solid #1f2937">
+        <div style="position:relative;width:100%;height:650px;border-radius:1rem;overflow:hidden;background:#0a0f1a;border:1px solid #334155">
           <div id="vec-graph" style="width:100%;height:100%"></div>
           <!-- Loading overlay -->
           <div v-if="vecLoading" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(10,10,15,0.8);flex-direction:column;gap:1rem">
@@ -845,7 +938,10 @@ dialog::backdrop { background: rgba(0,0,0,0.7); backdrop-filter: blur(4px); }
           <button @click="viewFile(vecSelected.doc)" type="button" class="btn-sm" style="font-size:11px;padding:0.25rem 0.75rem;white-space:nowrap">View File</button>
         </div>
       </section>
+
+      </div><!-- end page-fade -->
     </main>
+    </div><!-- end right column -->
   </div>
 
   <!-- File Viewer Dialog -->
@@ -874,6 +970,15 @@ dialog::backdrop { background: rgba(0,0,0,0.7); backdrop-filter: blur(4px); }
       </div>
     </div>
   </dialog>
+
+  <!-- Toast Container -->
+  <div class="fixed bottom-5 right-5 z-50 flex flex-col gap-2 pointer-events-none" aria-live="polite" aria-atomic="false">
+    <div v-for="t in toasts" :key="t.id" class="toast-item pointer-events-auto flex items-center gap-3 px-4 py-3 rounded-xl shadow-2xl border text-sm font-medium max-w-xs"
+      :class="t.type==='error' ? 'bg-dark-800 border-red-500/30 text-red-400' : t.type==='info' ? 'bg-dark-800 border-blue-500/30 text-blue-400' : 'bg-dark-800 border-green-500/30 text-green-400'">
+      <span class="flex-1">{{ t.msg }}</span>
+      <button @click="dismissToast(t.id)" type="button" class="opacity-50 hover:opacity-100 text-lg leading-none ml-1 flex-shrink-0" aria-label="Dismiss notification">×</button>
+    </div>
+  </div>
 
   <!-- Tool Runner Dialog -->
   <dialog ref="toolDialog" :aria-label="'Tool: ' + (currentTool?.name || '')" @click.self="$refs.toolDialog.close()" @cancel.prevent="$refs.toolDialog.close()">
@@ -1076,6 +1181,39 @@ const app = createApp({
     const importResults = ref([]);
     const chatStreaming = ref(false);
     const chatScroll = ref(null);
+    const chatInputRef = ref(null);
+
+    // Toast system
+    const toasts = ref([]);
+    let toastSeq = 0;
+    const showToast = (msg, type = 'success') => {
+      const id = ++toastSeq;
+      toasts.value.push({ id, msg, type });
+      setTimeout(() => dismissToast(id), 4000);
+    };
+    const dismissToast = (id) => { toasts.value = toasts.value.filter(t => t.id !== id); };
+
+    // Initial loading state for skeletons
+    const initialLoading = ref(true);
+
+    // Files filter + sort
+    const filesFilter = ref('');
+    const filesSort = reactive({ col: 'updated', dir: 'desc' });
+    const toggleSort = (col) => {
+      if (filesSort.col === col) filesSort.dir = filesSort.dir === 'asc' ? 'desc' : 'asc';
+      else { filesSort.col = col; filesSort.dir = 'desc'; }
+    };
+    const sortIcon = (col) => filesSort.col === col ? (filesSort.dir === 'asc' ? '↑' : '↓') : '↕';
+
+    // Connect MCP expand state
+    const connectExpanded = ref(false);
+
+    // Chat textarea auto-resize
+    const autoResizeChat = (e) => {
+      const el = e.target;
+      el.style.height = 'auto';
+      el.style.height = Math.min(el.scrollHeight, 120) + 'px';
+    };
 
     const dialogFile = ref({});
     const dialogTab = ref('preview');
@@ -1103,9 +1241,11 @@ const app = createApp({
       return r.json();
     };
 
+    const hasLLM = computed(() => llmService.value?.status === 'connected');
+
     const navItems = computed(() => [
       { page: 'overview', icon: '&#9635;', label: 'Overview', badge: null },
-      { page: 'chat', icon: '&#128172;', label: 'Chat', badge: null },
+      ...(hasLLM.value ? [{ page: 'chat', icon: '&#128172;', label: 'Chat', badge: null }] : []),
       { page: 'search', icon: '&#128269;', label: 'Search', badge: null },
       { page: 'files', icon: '&#128196;', label: 'Files', badge: overview.value.total_files || 0 },
       { divider: true },
@@ -1123,6 +1263,126 @@ const app = createApp({
     const maxCategory = computed(() => Math.max(...Object.values(overview.value.categories || {}), 1));
     const tasksDone = computed(() => taskItems.value.filter(t => t.done).length);
     const tasksPct = computed(() => taskItems.value.length ? Math.round(tasksDone.value / taskItems.value.length * 100) : 0);
+    const filteredFiles = computed(() => {
+      let list = files.value;
+      if (filesFilter.value.trim()) {
+        const q = filesFilter.value.toLowerCase();
+        list = list.filter(f => f.path.toLowerCase().includes(q) || (f.tags||[]).some(t => t.toLowerCase().includes(q)));
+      }
+      return [...list].sort((a, b) => {
+        const av = a[filesSort.col] ?? '', bv = b[filesSort.col] ?? '';
+        if (typeof av === 'number') return filesSort.dir === 'asc' ? av - bv : bv - av;
+        return filesSort.dir === 'asc' ? String(av).localeCompare(String(bv)) : String(bv).localeCompare(String(av));
+      });
+    });
+
+    const llmService = computed(() => services.value.find(s => s.name === 'LLM Provider'));
+    const embedService = computed(() => services.value.find(s => s.name === 'Embeddings'));
+
+    const activityByDate = computed(() => {
+      const labels = [], counts = [];
+      for (let i = 13; i >= 0; i--) {
+        const d = new Date();
+        d.setDate(d.getDate() - i);
+        const key = d.toISOString().slice(0, 10);
+        labels.push(i === 0 ? 'Today' : i === 1 ? 'Yest.' : key.slice(5).replace('-', '/'));
+        counts.push(activity.value.filter(a => a.updated === key).length);
+      }
+      return { labels, counts };
+    });
+
+    const spark7 = computed(() => {
+      const files = [], words = [];
+      for (let i = 6; i >= 0; i--) {
+        const d = new Date();
+        d.setDate(d.getDate() - i);
+        const key = d.toISOString().slice(0, 10);
+        const items = activity.value.filter(a => a.updated === key);
+        files.push(items.length);
+        words.push(items.reduce((s, a) => s + (a.word_count || 0), 0));
+      }
+      return { files, words };
+    });
+
+    const sparklineLine = (values) => {
+      if (!values || values.length < 2) return '';
+      const max = Math.max(...values, 1);
+      return values.map((v, i) => {
+        const x = (i / (values.length - 1)) * 100;
+        const y = 22 - ((v / max) * 20);
+        return `${i === 0 ? 'M' : 'L'}${x.toFixed(1)},${y.toFixed(1)}`;
+      }).join(' ');
+    };
+
+    const sparklineArea = (values) => {
+      const line = sparklineLine(values);
+      return line ? `${line} L100,24 L0,24 Z` : '';
+    };
+
+    const CHART_COLORS = ['#3b82f6','#10b981','#8b5cf6','#f59e0b','#ef4444','#06b6d4','#f97316','#ec4899','#84cc16','#a855f7'];
+    let donutChart = null;
+    let actChart = null;
+
+    const initCharts = async () => {
+      if (typeof Chart === 'undefined' || initialLoading.value) return;
+      await nextTick();
+      const tooltipDefaults = {
+        backgroundColor: '#1e293b', titleColor: '#e2e8f0', bodyColor: '#94a3b8',
+        borderColor: '#334155', borderWidth: 1, cornerRadius: 8,
+      };
+
+      // Donut: category distribution
+      const ctx1 = document.getElementById('chart-donut');
+      if (ctx1) {
+        if (donutChart) donutChart.destroy();
+        const cats = Object.entries(overview.value.categories || {});
+        donutChart = new Chart(ctx1, {
+          type: 'doughnut',
+          data: {
+            labels: cats.map(([k]) => k),
+            datasets: [{ data: cats.map(([,v]) => v), backgroundColor: CHART_COLORS, borderWidth: 0, hoverOffset: 6 }]
+          },
+          options: {
+            responsive: true, maintainAspectRatio: false,
+            plugins: {
+              legend: { position: 'right', labels: { color: '#94a3b8', font: { size: 11 }, padding: 10, boxWidth: 10, boxHeight: 10 } },
+              tooltip: { ...tooltipDefaults },
+            },
+            cutout: '68%',
+          }
+        });
+      }
+
+      // Bar: activity timeline
+      const ctx2 = document.getElementById('chart-activity');
+      if (ctx2) {
+        if (actChart) actChart.destroy();
+        const { labels, counts } = activityByDate.value;
+        actChart = new Chart(ctx2, {
+          type: 'bar',
+          data: {
+            labels,
+            datasets: [{
+              label: 'Files updated',
+              data: counts,
+              backgroundColor: 'rgba(59,130,246,0.25)',
+              borderColor: '#3b82f6',
+              borderWidth: 2,
+              borderRadius: 6,
+              borderSkipped: false,
+            }]
+          },
+          options: {
+            responsive: true, maintainAspectRatio: false,
+            plugins: { legend: { display: false }, tooltip: { ...tooltipDefaults } },
+            scales: {
+              x: { ticks: { color: '#64748b', font: { size: 10 }, maxRotation: 0, maxTicksLimit: 7 }, grid: { display: false }, border: { color: '#334155' } },
+              y: { ticks: { color: '#64748b', font: { size: 10 }, stepSize: 1, precision: 0 }, grid: { color: '#253347' }, border: { display: false }, min: 0 }
+            }
+          }
+        });
+      }
+    };
 
     const authenticate = async () => {
       authError.value = '';
@@ -1145,7 +1405,9 @@ const app = createApp({
       if (filesData?.files) files.value = filesData.files;
       if (toolsData?.tools) tools.value = toolsData.tools;
       if (pluginsData?.plugins) plugins.value = pluginsData.plugins;
+      initialLoading.value = false;
       loadSyncStatus();
+      initCharts();
     };
 
     const reorgLoading = ref(false);
@@ -1221,7 +1483,7 @@ const app = createApp({
       vecGraphInstance = ForceGraph3D({ antialias: true, alpha: true })(el)
         .backgroundColor('#0a0a0f')
         .graphData({ nodes, links })
-        .nodeLabel(n => `<div style="background:#1f2937;color:#e5e7eb;padding:4px 8px;border-radius:6px;font-size:12px;font-family:monospace;max-width:240px;word-break:break-all">${n.label}<br><span style="color:#6b7280;font-size:10px">${n.doc}</span></div>`)
+        .nodeLabel(n => `<div style="background:#1e293b;color:#e2e8f0;padding:4px 8px;border-radius:8px;font-size:12px;font-family:monospace;max-width:240px;word-break:break-all;border:1px solid #334155">${n.label}<br><span style="color:#64748b;font-size:10px">${n.doc}</span></div>`)
         .nodeColor(n => groupColor(n.group))
         .nodeVal(6)
         .nodeOpacity(0.9)
@@ -1263,8 +1525,12 @@ const app = createApp({
       await loadVectors();
     };
 
-    // Auto-load when navigating to vectors page.
+    // Redirect away from chat if provider becomes unavailable.
+    watch(hasLLM, (ok) => { if (!ok && page.value === 'chat') page.value = 'overview'; });
+
+    // Auto-load when navigating to certain pages.
     watch(page, (p) => {
+      if (p === 'overview') nextTick().then(initCharts);
       if (p === 'vectors' && vecMeta.value.nodes === 0) loadVectors();
       if (p === 'reorg' && reorgActions.value.length === 0 && !reorgLoading.value) loadReorg();
     });
@@ -1301,8 +1567,14 @@ const app = createApp({
       pluginResult.value = null;
       const data = await post('/api/plugins/run', { name });
       pluginRunning.value = '';
-      if (data?.error) { pluginResult.value = { name, error: data.error }; }
-      else { pluginResult.value = data; }
+      if (data?.error) {
+        pluginResult.value = { name, error: data.error };
+        showToast(name + ': ' + data.error, 'error');
+      } else {
+        pluginResult.value = data;
+        if (data?.imported > 0) showToast(name + ' → ' + data.imported + ' item(s) imported', 'success');
+        else showToast(name + ': nothing fetched', 'info');
+      }
       // Refresh overview since brain files may have changed.
       const overviewData = await api('/api/overview');
       if (overviewData) overview.value = overviewData;
@@ -1470,9 +1742,15 @@ const app = createApp({
       syncError.value = false;
       try {
         const data = await post('/api/sync/' + action, {});
-        if (data.error) { syncMsg.value = data.error; syncError.value = true; }
-        else { syncMsg.value = '&#10003; ' + (data.status || 'Done'); loadSyncStatus(); }
-      } catch (e) { syncMsg.value = e.message; syncError.value = true; }
+        if (data.error) {
+          syncMsg.value = data.error; syncError.value = true;
+          showToast(data.error, 'error');
+        } else {
+          syncMsg.value = '&#10003; ' + (data.status || 'Done');
+          showToast((action === 'push' ? 'Push' : 'Pull') + ' complete', 'success');
+          loadSyncStatus();
+        }
+      } catch (e) { syncMsg.value = e.message; syncError.value = true; showToast(e.message, 'error'); }
       syncing.value = false;
     };
 
@@ -1517,6 +1795,10 @@ const app = createApp({
         const response = await fetch(BASE + '/api/import', { method: 'POST', body: formData });
         const data = await response.json();
         importResults.value = data.results || [];
+        const errCount = (data.results || []).filter(r => r.error).length;
+        const okCount = (data.results || []).length - errCount;
+        if (okCount > 0) showToast(okCount + ' file(s) imported successfully', 'success');
+        if (errCount > 0) showToast(errCount + ' file(s) failed to import', 'error');
         if (data.count > 0) {
           selectedFiles.value = [];
           setTimeout(() => { loadAll(); }, 500);
@@ -1539,12 +1821,17 @@ const app = createApp({
     return {
       locked, pin, authError, page, sidebarOpen, info, overview, tags, taskItems, activity, services, files, tools, plugins, pluginRunning, pluginResult, reorgActions, reorgLoading, loadReorg,
       searchQuery, searchResults, syncConfigured, syncBackend, syncMsg, syncError, syncDetail, syncing, syncButtons, syncButtonClasses,
-      chatMode, chatMessages, chatInput, chatLoading, chatStreaming, chatScroll,
+      chatMode, chatMessages, chatInput, chatLoading, chatStreaming, chatScroll, chatInputRef, autoResizeChat,
       dialogFile, dialogTab, dialogRendered, fileDialog,
       currentTool, toolParams, toolResult, toolStatus, toolExecuting, toolTab, toolRendered, toolDialog,
       selectedFiles, dragActive, importing, importOptions, importResults,
-      navItems, sortedCategories, maxCategory, tasksDone, tasksPct,
-      connectSnippets, copied, copySnippet,
+      navItems, sortedCategories, maxCategory, tasksDone, tasksPct, filteredFiles,
+      connectSnippets, copied, copySnippet, connectExpanded,
+      toasts, showToast, dismissToast,
+      initialLoading,
+      filesFilter, filesSort, toggleSort, sortIcon,
+      llmService, embedService, hasLLM,
+      spark7, sparklineLine, sparklineArea,
       authenticate, viewFile, doSearch, searchFromTag, runPlugin, openTool, executeTool, loadSyncStatus, doSync, sendChat,
       handleFileSelect, handleDrop, handleImport,
       vecLoading, vecBuilding, vecSelected, vecMeta, vecGroups, loadVectors, buildEmbeddings, vecZoom, vecFit,
