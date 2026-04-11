@@ -492,19 +492,21 @@ func extractSnippet(content string, offset, length, maxLen int) string {
 
 func (s *Server) handleInfo(w http.ResponseWriter, r *http.Request) {
 	type response struct {
-		AgentName string `json:"agent_name"`
-		UserName  string `json:"user_name"`
-		Version   string `json:"version"`
-		Commit    string `json:"commit"`
-		BuildDate string `json:"build_date"`
+		AgentName  string `json:"agent_name"`
+		UserName   string `json:"user_name"`
+		Version    string `json:"version"`
+		Commit     string `json:"commit"`
+		BuildDate  string `json:"build_date"`
+		ListenAddr string `json:"listen_addr"`
 	}
 
 	writeJSON(w, response{
-		AgentName: s.cfg.AgentName(),
-		UserName:  s.cfg.UserName(),
-		Version:   kai.Version,
-		Commit:    kai.Commit,
-		BuildDate: kai.BuildDate,
+		AgentName:  s.cfg.AgentName(),
+		UserName:   s.cfg.UserName(),
+		Version:    kai.Version,
+		Commit:     kai.Commit,
+		BuildDate:  kai.BuildDate,
+		ListenAddr: s.cfg.Server.ListenAddr,
 	})
 }
 

@@ -388,6 +388,24 @@ dialog::backdrop { background: rgba(0,0,0,0.7); backdrop-filter: blur(4px); }
           </section>
         </div>
 
+        <!-- Connect / MCP Setup -->
+        <section class="card-base mb-6" aria-labelledby="connect-heading">
+          <h3 id="connect-heading" class="section-label mb-3">Connect MCP</h3>
+          <p class="text-xs text-gray-500 mb-3">Add to your MCP config to connect from Claude Code, Cursor, or VS Code.</p>
+          <div class="space-y-3">
+            <div v-for="snippet in connectSnippets" :key="snippet.label">
+              <div class="flex items-center justify-between mb-1">
+                <span class="text-[11px] font-semibold text-gray-400">{{ snippet.label }}</span>
+                <button @click="copySnippet(snippet.code)" type="button"
+                  class="text-[10px] text-gray-500 hover:text-blue-400 transition px-1.5 py-0.5 rounded hover:bg-dark-700">
+                  {{ copied === snippet.label ? 'Copied!' : 'Copy' }}
+                </button>
+              </div>
+              <pre class="text-[11px] font-mono bg-dark-900 border border-dark-600 rounded p-2.5 overflow-x-auto text-gray-300 leading-relaxed whitespace-pre">{{ snippet.code }}</pre>
+            </div>
+          </div>
+        </section>
+
         <!-- Activity -->
         <section class="card-base" aria-labelledby="activity-heading">
           <div class="flex items-center justify-between mb-3">
@@ -694,11 +712,13 @@ dialog::backdrop { background: rgba(0,0,0,0.7); backdrop-filter: blur(4px); }
               <div class="text-xs text-gray-500 mt-1">{{ p.description }}</div>
             </div>
             <button @click="runPlugin(p.name)" type="button"
-              :disabled="pluginRunning === p.name"
+              :disabled="!p.enabled || pluginRunning === p.name"
               class="shrink-0 px-3 py-1.5 rounded text-xs font-medium transition"
-              :class="pluginRunning === p.name
-                ? 'bg-dark-600 text-gray-600 cursor-wait'
-                : 'bg-blue-500/15 text-blue-400 hover:bg-blue-500/25'">
+              :class="!p.enabled
+                ? 'bg-dark-600 text-gray-600 cursor-not-allowed opacity-50'
+                : pluginRunning === p.name
+                  ? 'bg-dark-600 text-gray-600 cursor-wait'
+                  : 'bg-blue-500/15 text-blue-400 hover:bg-blue-500/25'">
               <span v-if="pluginRunning === p.name">Running&hellip;</span>
               <span v-else>Run</span>
             </button>
@@ -1251,6 +1271,31 @@ const app = createApp({
 
     const searchFromTag = (tag) => { page.value = 'search'; searchQuery.value = tag; doSearch(); };
 
+    // Connect snippets for MCP setup
+    const copied = ref('');
+    const connectSnippets = computed(() => {
+      const name = info.value.agent_name || 'kai';
+      const origin = window.location.origin;
+      const mcpUrl = origin + '/mcp';
+      const stdio = JSON.stringify({
+        mcpServers: { [name]: { type: 'stdio', command: name, args: ['mcp'] } }
+      }, null, 2);
+      const http = JSON.stringify({
+        mcpServers: { [name]: { type: 'http', url: mcpUrl, headers: { Authorization: 'Bearer YOUR_TOKEN' } } }
+      }, null, 2);
+      return [
+        { label: 'Claude Code (local)', code: name + ' setup' },
+        { label: 'Claude Code (remote) — ~/.mcp.json', code: http },
+        { label: 'Cursor / VS Code — .cursor/mcp.json', code: stdio },
+        { label: 'Install slash commands', code: 'Ask Claude: "install ' + name + ' slash commands"' },
+      ];
+    });
+    const copySnippet = async (text) => {
+      await navigator.clipboard.writeText(text);
+      const match = connectSnippets.value.find(s => s.code === text);
+      if (match) { copied.value = match.label; setTimeout(() => { copied.value = ''; }, 2000); }
+    };
+
     const runPlugin = async (name) => {
       pluginRunning.value = name;
       pluginResult.value = null;
@@ -1499,6 +1544,7 @@ const app = createApp({
       currentTool, toolParams, toolResult, toolStatus, toolExecuting, toolTab, toolRendered, toolDialog,
       selectedFiles, dragActive, importing, importOptions, importResults,
       navItems, sortedCategories, maxCategory, tasksDone, tasksPct,
+      connectSnippets, copied, copySnippet,
       authenticate, viewFile, doSearch, searchFromTag, runPlugin, openTool, executeTool, loadSyncStatus, doSync, sendChat,
       handleFileSelect, handleDrop, handleImport,
       vecLoading, vecBuilding, vecSelected, vecMeta, vecGroups, loadVectors, buildEmbeddings, vecZoom, vecFit,

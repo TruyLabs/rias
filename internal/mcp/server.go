@@ -295,6 +295,13 @@ func (s *Server) registerTools() {
 		),
 		s.handleModuleRun,
 	)
+
+	s.mcp.AddTool(
+		mcplib.NewTool("setup_commands",
+			mcplib.WithDescription("Get kai slash command files for Claude Code. Returns file names and contents as JSON. Write each file to ~/.claude/commands/kai/<name>.md to install the /kai:* slash commands."),
+		),
+		s.handleSetupCommands,
+	)
 }
 
 func (s *Server) handleBrainList(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
@@ -840,4 +847,33 @@ func (s *Server) handleModuleRun(ctx context.Context, req mcplib.CallToolRequest
 		return mcplib.NewToolResultText("no modules enabled — set 'enabled: true' in config.yaml"), nil
 	}
 	return mcplib.NewToolResultText(strings.TrimSpace(sb.String())), nil
+}
+
+func (s *Server) handleSetupCommands(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
+	agentName := s.cfg.AgentName()
+
+	type cmdEntry struct {
+		Name       string `json:"name"`
+		Content    string `json:"content"`
+		InstallDir string `json:"install_dir"`
+	}
+
+	cmds := kai.ClaudeCommands(agentName)
+	installDir := "~/.claude/commands/" + agentName
+
+	entries := make([]cmdEntry, 0, len(cmds))
+	for name, content := range cmds {
+		entries = append(entries, cmdEntry{
+			Name:       name,
+			Content:    content,
+			InstallDir: installDir,
+		})
+	}
+	sort.Slice(entries, func(i, j int) bool { return entries[i].Name < entries[j].Name })
+
+	data, err := json.Marshal(entries)
+	if err != nil {
+		return mcplib.NewToolResultError(fmt.Sprintf("marshal: %v", err)), nil
+	}
+	return mcplib.NewToolResultText(string(data)), nil
 }

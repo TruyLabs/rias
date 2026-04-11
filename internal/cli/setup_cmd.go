@@ -7,89 +7,13 @@ import (
 	"os/exec"
 	"path/filepath"
 
+	kai "github.com/norenis/kai"
 	"github.com/norenis/kai/internal/brain"
 	"github.com/norenis/kai/internal/config"
 	"github.com/spf13/cobra"
 )
 
-// claudeCommands defines the slash commands installed to ~/.claude/commands/kai/.
-// Each entry maps a filename (without .md) to its content.
-var claudeCommands = map[string]string{
-	"ask": `Ask kai a question using brain context.
-
-Call the ` + "`mcp__kai__ask`" + ` tool with:
-- ` + "`question`" + `: ` + "`$ARGUMENTS`" + `
-
-Show the response directly.
-`,
-	"teach": `Teach kai something new.
-
-If ` + "`$ARGUMENTS`" + ` contains structured fields (category, topic, content, tags), call ` + "`mcp__kai__teach`" + ` in direct mode with those fields.
-
-Otherwise, call ` + "`mcp__kai__teach`" + ` with:
-- ` + "`input`" + `: ` + "`$ARGUMENTS`" + `
-
-Show what was saved.
-`,
-	"brain-list": `List all brain knowledge files.
-
-Call the ` + "`mcp__kai__brain_list`" + ` tool (no parameters needed).
-
-Show the results as a table with path, tags, and confidence.
-`,
-	"brain-read": `Read a brain file's content.
-
-Call the ` + "`mcp__kai__brain_read`" + ` tool with:
-- ` + "`path`" + `: ` + "`$ARGUMENTS`" + `
-
-Show the file content with its tags and confidence level.
-`,
-	"brain-search": `Search brain knowledge by keywords.
-
-Call the ` + "`mcp__kai__brain_search`" + ` tool with:
-- ` + "`query`" + `: ` + "`$ARGUMENTS`" + `
-
-Show the results ranked by score.
-`,
-	"brain-write": `Write or update a brain file.
-
-Parse ` + "`$ARGUMENTS`" + ` for the required fields:
-- ` + "`path`" + ` — relative path (e.g. "opinions/testing.md")
-- ` + "`content`" + ` — the markdown content
-- ` + "`tags`" + ` — comma-separated tags
-- ` + "`confidence`" + ` — high, medium, or low (optional, default: medium)
-
-Call the ` + "`mcp__kai__brain_write`" + ` tool with those fields.
-
-Show confirmation of what was saved.
-`,
-	"brain-reorganize": `Analyze brain files for reorganization opportunities.
-
-Call the ` + "`mcp__kai__brain_reorganize`" + ` tool with:
-- ` + "`mode`" + `: from ` + "`$ARGUMENTS`" + ` if specified (all, dedup, recategorize, consolidate), default: all
-- ` + "`apply`" + `: false (dry-run by default; pass "apply" in arguments to execute)
-
-Show the suggested actions. Ask for confirmation before applying.
-`,
-	"module-list": `List all available kai plugins/modules.
-
-Call the ` + "`mcp__kai__module_list`" + ` tool (no parameters needed).
-
-Show each module with its name, description, and enabled/disabled status.
-`,
-	"module-run": `Run a kai plugin/module to fetch external data into the brain.
-
-Call the ` + "`mcp__kai__module_run`" + ` tool with:
-- ` + "`name`" + `: ` + "`$ARGUMENTS`" + ` (if provided; omit to run all enabled modules)
-
-Show the import results.
-`,
-}
-
-const (
-	mcpConfigName = "kai"
-	moduleURL     = "github.com/norenis/kai/cmd/kai@latest"
-)
+const moduleURL = "github.com/norenis/kai/cmd/kai@latest"
 
 func newSetupCmd() *cobra.Command {
 	var useLocal bool
@@ -161,24 +85,24 @@ sessions_path: %s
 	}
 
 	// Step 3: Register as Claude Code MCP server.
-	if err := registerMCPServer(homeDir, configPath, useLocal); err != nil {
+	if err := registerMCPServer(homeDir, configPath, useLocal, agentName); err != nil {
 		return fmt.Errorf("register MCP server: %w", err)
 	}
 
 	// Step 4: Install Claude Code slash commands.
-	if err := installClaudeCommands(homeDir); err != nil {
+	if err := installClaudeCommands(homeDir, agentName); err != nil {
 		fmt.Printf("  ⚠ Could not install slash commands: %v\n", err)
 	}
 
 	fmt.Printf("\nSetup complete! %s is ready as an MCP server for Claude Code.\n", agentName)
 	fmt.Println("\nNext steps:")
 	fmt.Println("  1. Restart Claude Code to pick up the MCP server")
-	fmt.Printf("  2. Use /kai:ask, /kai:teach, /kai:brain-search, etc.\n")
+	fmt.Printf("  2. Use /%s:ask, /%s:teach, /%s:brain-search, etc.\n", agentName, agentName, agentName)
 	fmt.Printf("  3. Ask Claude Code to teach %s about you\n", agentName)
 	return nil
 }
 
-func registerMCPServer(homeDir, configPath string, useLocal bool) error {
+func registerMCPServer(homeDir, configPath string, useLocal bool, agentName string) error {
 	mcpFile := filepath.Join(homeDir, ".mcp.json")
 
 	var mcpConfig map[string]interface{}
@@ -201,12 +125,12 @@ func registerMCPServer(homeDir, configPath string, useLocal bool) error {
 
 	if useLocal {
 		// Use the current binary directly.
-		kaiPath, err := exec.LookPath(config.DefaultAgentName)
+		kaiPath, err := exec.LookPath(agentName)
 		if err != nil {
 			// Fall back to the current executable.
 			kaiPath, err = os.Executable()
 			if err != nil {
-				return fmt.Errorf("%s not found on PATH and cannot determine current executable", config.DefaultAgentName)
+				return fmt.Errorf("%s not found on PATH and cannot determine current executable", agentName)
 			}
 		}
 		entry = map[string]interface{}{
@@ -227,7 +151,7 @@ func registerMCPServer(homeDir, configPath string, useLocal bool) error {
 		fmt.Printf("  Mode: go run %s\n", moduleURL)
 	}
 
-	servers[mcpConfigName] = entry
+	servers[agentName] = entry
 
 	data, err := json.MarshalIndent(mcpConfig, "", "  ")
 	if err != nil {
@@ -241,20 +165,21 @@ func registerMCPServer(homeDir, configPath string, useLocal bool) error {
 	return nil
 }
 
-// installClaudeCommands writes the kai slash commands to ~/.claude/commands/kai/.
-func installClaudeCommands(homeDir string) error {
-	cmdDir := filepath.Join(homeDir, ".claude", "commands", config.DefaultAgentName)
+// installClaudeCommands writes the slash commands to ~/.claude/commands/<agentName>/.
+func installClaudeCommands(homeDir, agentName string) error {
+	cmdDir := filepath.Join(homeDir, ".claude", "commands", agentName)
 	if err := os.MkdirAll(cmdDir, 0755); err != nil {
 		return err
 	}
 
-	for name, content := range claudeCommands {
+	cmds := kai.ClaudeCommands(agentName)
+	for name, content := range cmds {
 		path := filepath.Join(cmdDir, name+".md")
 		if err := os.WriteFile(path, []byte(content), 0644); err != nil {
 			return fmt.Errorf("write %s: %w", name, err)
 		}
 	}
 
-	fmt.Printf("  Commands: %s (%d slash commands)\n", cmdDir, len(claudeCommands))
+	fmt.Printf("  Commands: %s (%d slash commands)\n", cmdDir, len(cmds))
 	return nil
 }
