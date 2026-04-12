@@ -11,7 +11,6 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -137,6 +136,7 @@ func (s *Server) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/", auth(s.handleIndex))
 	mux.HandleFunc("/api/overview", auth(s.handleOverview))
 	mux.HandleFunc("/api/tasks", auth(s.handleTasks))
+	mux.HandleFunc("/api/tasks/add", auth(s.handleTasksAdd))
 	mux.HandleFunc("/api/activity", auth(s.handleActivity))
 	mux.HandleFunc("/api/search", auth(s.handleSearch))
 	mux.HandleFunc("/api/info", auth(s.handleInfo))
@@ -324,15 +324,23 @@ func (s *Server) handleOverview(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleTasks(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodPost {
+		s.handleTasksToggle(w, r)
+		return
+	}
+	s.handleTasksGet(w, r)
+}
+
+func (s *Server) handleTasksGet(w http.ResponseWriter, r *http.Request) {
 	type response struct {
-		Items []taskItem `json:"items"`
+		Items []brain.TaskItem `json:"items"`
 	}
 
 	// Find today's tasks file or the most recent one.
 	tasksDir := filepath.Join(s.brainPath, "tasks")
 	files, _ := filepath.Glob(filepath.Join(tasksDir, "*.md"))
 	if len(files) == 0 {
-		writeJSON(w, response{Items: []taskItem{}})
+		writeJSON(w, response{Items: []brain.TaskItem{}})
 		return
 	}
 
@@ -341,47 +349,80 @@ func (s *Server) handleTasks(w http.ResponseWriter, r *http.Request) {
 
 	bf, err := s.brain.Load("tasks/" + filepath.Base(files[0]))
 	if err != nil {
-		writeJSON(w, response{Items: []taskItem{}})
+		writeJSON(w, response{Items: []brain.TaskItem{}})
 		return
 	}
 
-	items := parseTasks(bf.Content)
-	writeJSON(w, response{Items: items})
+	writeJSON(w, response{Items: brain.ParseTasks(bf.Content)})
 }
 
-var taskLineRe = regexp.MustCompile(`^- \[([ x~])\] (.+)$`)
-var priorityRe = regexp.MustCompile(`\x{1f534}\s*high|\x{1f7e1}\s*medium|\x{1f7e2}\s*low`)
-
-func parseTasks(content string) []taskItem {
-	var items []taskItem
-	for _, line := range strings.Split(content, "\n") {
-		line = strings.TrimSpace(line)
-		m := taskLineRe.FindStringSubmatch(line)
-		if m == nil {
-			continue
-		}
-		done := m[1] == "x"
-		text := m[2]
-
-		// Extract priority from emoji markers.
-		var priority string
-		if strings.Contains(text, "high") {
-			priority = "high"
-		} else if strings.Contains(text, "medium") {
-			priority = "medium"
-		} else if strings.Contains(text, "low") {
-			priority = "low"
-		}
-
-		items = append(items, taskItem{Text: text, Done: done, Priority: priority})
+func (s *Server) handleTasksToggle(w http.ResponseWriter, r *http.Request) {
+	type toggleReq struct {
+		Index int  `json:"index"`
+		Done  bool `json:"done"`
 	}
-	return items
+	type response struct {
+		Items []brain.TaskItem `json:"items"`
+	}
+
+	var req toggleReq
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid request", http.StatusBadRequest)
+		return
+	}
+
+	path := brain.TaskFilePath(time.Now())
+	bf, err := s.brain.Load(path)
+	if err != nil {
+		http.Error(w, "no tasks for today", http.StatusNotFound)
+		return
+	}
+
+	newContent, err := brain.ToggleTask(bf.Content, req.Index, req.Done)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	bf.Content = newContent
+	bf.Updated = brain.DateOnly{Time: time.Now()}
+	if err := s.brain.Save(bf); err != nil {
+		http.Error(w, "failed to save tasks", http.StatusInternalServerError)
+		return
+	}
+
+	writeJSON(w, response{Items: brain.ParseTasks(bf.Content)})
 }
 
-type taskItem struct {
-	Text     string `json:"text"`
-	Done     bool   `json:"done"`
-	Priority string `json:"priority,omitempty"`
+func (s *Server) handleTasksAdd(w http.ResponseWriter, r *http.Request) {
+	type addReq struct {
+		Text     string `json:"text"`
+		Priority string `json:"priority"`
+	}
+	type response struct {
+		Items []brain.TaskItem `json:"items"`
+	}
+
+	var req addReq
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Text == "" {
+		http.Error(w, "invalid request: text is required", http.StatusBadRequest)
+		return
+	}
+
+	path := brain.TaskFilePath(time.Now())
+	bf, err := s.brain.Load(path)
+	if err != nil {
+		bf = brain.NewTaskFile(time.Now())
+	}
+
+	bf.Content = brain.AppendTask(bf.Content, req.Text, req.Priority)
+	bf.Updated = brain.DateOnly{Time: time.Now()}
+	if err := s.brain.Save(bf); err != nil {
+		http.Error(w, "failed to save tasks", http.StatusInternalServerError)
+		return
+	}
+
+	writeJSON(w, response{Items: brain.ParseTasks(bf.Content)})
 }
 
 func (s *Server) handleActivity(w http.ResponseWriter, r *http.Request) {

@@ -302,6 +302,26 @@ func (s *Server) registerTools() {
 		),
 		s.handleSetupCommands,
 	)
+
+	s.mcp.AddTool(
+		mcplib.NewTool("tasks",
+			mcplib.WithDescription("Manage today's task list. Actions: list (show tasks), add (create task), done/undone (toggle by index), rm (remove by index)."),
+			mcplib.WithString("action",
+				mcplib.Required(),
+				mcplib.Description("Action: list, add, done, undone, or rm"),
+			),
+			mcplib.WithString("text",
+				mcplib.Description("Task text — required for 'add'"),
+			),
+			mcplib.WithNumber("index",
+				mcplib.Description("Zero-based task index — required for done, undone, rm"),
+			),
+			mcplib.WithString("priority",
+				mcplib.Description("Priority: high, medium, or low — optional for 'add'"),
+			),
+		),
+		s.handleTasksTool,
+	)
 }
 
 func (s *Server) handleBrainList(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
@@ -884,4 +904,109 @@ func (s *Server) handleSetupCommands(ctx context.Context, req mcplib.CallToolReq
 		return mcplib.NewToolResultError(fmt.Sprintf("marshal: %v", err)), nil
 	}
 	return mcplib.NewToolResultText(string(data)), nil
+}
+
+func (s *Server) handleTasksTool(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
+	action, err := req.RequireString("action")
+	if err != nil || action == "" {
+		return mcplib.NewToolResultError("action is required: list, add, done, undone, or rm"), nil
+	}
+
+	todayPath := brain.TaskFilePath(time.Now())
+
+	switch action {
+	case "list":
+		bf, err := s.brain.Load(todayPath)
+		if err != nil {
+			return mcplib.NewToolResultText("No tasks for today."), nil
+		}
+		items := brain.ParseTasks(bf.Content)
+		if len(items) == 0 {
+			return mcplib.NewToolResultText("No tasks for today."), nil
+		}
+		var sb strings.Builder
+		done := 0
+		for _, t := range items {
+			if t.Done {
+				done++
+			}
+		}
+		fmt.Fprintf(&sb, "Tasks (%d/%d done):\n", done, len(items))
+		for i, t := range items {
+			mark := "○"
+			if t.Done {
+				mark = "✓"
+			}
+			fmt.Fprintf(&sb, "[%d] %s %s\n", i, mark, t.Text)
+		}
+		return mcplib.NewToolResultText(strings.TrimSpace(sb.String())), nil
+
+	case "add":
+		text, err := req.RequireString("text")
+		if err != nil || text == "" {
+			return mcplib.NewToolResultError("text is required for 'add'"), nil
+		}
+		priority, _ := req.RequireString("priority")
+		bf, loadErr := s.brain.Load(todayPath)
+		if loadErr != nil {
+			bf = brain.NewTaskFile(time.Now())
+		}
+		bf.Content = brain.AppendTask(bf.Content, text, priority)
+		bf.Updated = brain.DateOnly{Time: time.Now()}
+		if err := s.brain.Save(bf); err != nil {
+			return mcplib.NewToolResultError(fmt.Sprintf("save tasks: %v", err)), nil
+		}
+		s.triggerReindex()
+		return mcplib.NewToolResultText(fmt.Sprintf("Added: %s", text)), nil
+
+	case "done", "undone":
+		idxF, err := req.RequireFloat("index")
+		if err != nil {
+			return mcplib.NewToolResultError("index is required for 'done'/'undone'"), nil
+		}
+		idx := int(idxF)
+		bf, err := s.brain.Load(todayPath)
+		if err != nil {
+			return mcplib.NewToolResultError("no tasks for today"), nil
+		}
+		newContent, err := brain.ToggleTask(bf.Content, idx, action == "done")
+		if err != nil {
+			return mcplib.NewToolResultError(err.Error()), nil
+		}
+		bf.Content = newContent
+		bf.Updated = brain.DateOnly{Time: time.Now()}
+		if err := s.brain.Save(bf); err != nil {
+			return mcplib.NewToolResultError(fmt.Sprintf("save tasks: %v", err)), nil
+		}
+		verb := "Done"
+		if action == "undone" {
+			verb = "Undone"
+		}
+		return mcplib.NewToolResultText(fmt.Sprintf("%s: task [%d]", verb, idx)), nil
+
+	case "rm":
+		idxF, err := req.RequireFloat("index")
+		if err != nil {
+			return mcplib.NewToolResultError("index is required for 'rm'"), nil
+		}
+		idx := int(idxF)
+		bf, err := s.brain.Load(todayPath)
+		if err != nil {
+			return mcplib.NewToolResultError("no tasks for today"), nil
+		}
+		newContent, err := brain.RemoveTask(bf.Content, idx)
+		if err != nil {
+			return mcplib.NewToolResultError(err.Error()), nil
+		}
+		bf.Content = newContent
+		bf.Updated = brain.DateOnly{Time: time.Now()}
+		if err := s.brain.Save(bf); err != nil {
+			return mcplib.NewToolResultError(fmt.Sprintf("save tasks: %v", err)), nil
+		}
+		s.triggerReindex()
+		return mcplib.NewToolResultText(fmt.Sprintf("Removed task [%d]", idx)), nil
+
+	default:
+		return mcplib.NewToolResultError(fmt.Sprintf("unknown action %q — use: list, add, done, undone, rm", action)), nil
+	}
 }

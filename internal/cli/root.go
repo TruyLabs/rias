@@ -36,6 +36,7 @@ func NewRootCmd() *cobra.Command {
 	root.AddCommand(newSyncCmd())
 	root.AddCommand(newReindexCmd())
 	root.AddCommand(newModuleCmd())
+	root.AddCommand(newTaskCmd())
 
 	return root
 }

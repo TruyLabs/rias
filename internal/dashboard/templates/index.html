@@ -559,19 +559,28 @@ dialog::backdrop { background: rgba(0,0,0,0.7); backdrop-filter: blur(4px); }
           </div>
           <ul class="space-y-0" aria-label="Task list">
             <li v-for="(t, i) in taskItems" :key="i" class="flex items-center gap-2.5 py-2 border-b border-dark-600 last:border-none text-sm">
-              <span class="w-4 h-4 rounded flex-shrink-0 border-2 flex items-center justify-center text-[10px] font-bold" aria-hidden="true"
-                :class="t.done ? 'bg-green-500 border-green-500 text-white' : 'border-dark-600'">
-                <span v-if="t.done">&#10003;</span>
-              </span>
-              <span :class="t.done ? 'text-gray-600 line-through' : ''">
-                <span class="sr-only">{{ t.done ? 'Completed: ' : 'Pending: ' }}</span>{{ t.text }}
-              </span>
+              <button type="button" @click="toggleTask(i)"
+                class="w-4 h-4 rounded flex-shrink-0 border-2 flex items-center justify-center text-[10px] font-bold cursor-pointer transition-colors"
+                :class="t.done ? 'bg-green-500 border-green-500 text-white' : 'border-dark-600 hover:border-gray-400'"
+                :aria-label="(t.done ? 'Mark incomplete: ' : 'Mark complete: ') + t.text">
+                <span v-if="t.done" aria-hidden="true">&#10003;</span>
+              </button>
+              <span :class="t.done ? 'text-gray-600 line-through' : ''">{{ t.text }}</span>
               <span v-if="t.priority" class="w-2 h-2 rounded-full ml-auto flex-shrink-0" aria-hidden="true"
                 :class="{'bg-red-500': t.priority==='high', 'bg-yellow-500': t.priority==='medium', 'bg-green-500': t.priority==='low'}"></span>
               <span v-if="t.priority" class="sr-only">Priority: {{ t.priority }}</span>
             </li>
           </ul>
           <empty-state v-if="!taskItems.length" message="No tasks for today."></empty-state>
+          <div class="mt-4 flex gap-2">
+            <input v-model="newTaskText" type="text" placeholder="Add a task..."
+              class="flex-1 bg-dark-700 border border-dark-500 rounded px-3 py-1.5 text-sm text-gray-200 placeholder-gray-600 focus:outline-none focus:border-blue-500"
+              @keyup.enter="addTask">
+            <button type="button" @click="addTask"
+              class="px-3 py-1.5 text-sm bg-blue-600 hover:bg-blue-700 text-white rounded transition-colors">
+              Add
+            </button>
+          </div>
         </div>
       </section>
 
@@ -1128,6 +1137,7 @@ const app = createApp({
     const overview = ref({});
     const tags = ref([]);
     const taskItems = ref([]);
+    const newTaskText = ref('');
     const activity = ref([]);
     const services = ref([]);
     const files = ref([]);
@@ -1426,6 +1436,21 @@ const app = createApp({
       dialogTab.value = 'preview';
       dialogRendered.value = renderMd(data.content);
       fileDialog.value?.showModal();
+    };
+
+    const toggleTask = async (index) => {
+      const item = taskItems.value[index];
+      if (!item) return;
+      const data = await post('/api/tasks', { index, done: !item.done });
+      if (data?.items) taskItems.value = data.items;
+    };
+
+    const addTask = async () => {
+      const text = newTaskText.value.trim();
+      if (!text) return;
+      newTaskText.value = '';
+      const data = await post('/api/tasks/add', { text });
+      if (data?.items) taskItems.value = data.items;
     };
 
     const doSearch = async () => {
@@ -1832,6 +1857,7 @@ const app = createApp({
       filesFilter, filesSort, toggleSort, sortIcon,
       llmService, embedService, hasLLM,
       spark7, sparklineLine, sparklineArea,
+      newTaskText, toggleTask, addTask,
       authenticate, viewFile, doSearch, searchFromTag, runPlugin, openTool, executeTool, loadSyncStatus, doSync, sendChat,
       handleFileSelect, handleDrop, handleImport,
       vecLoading, vecBuilding, vecSelected, vecMeta, vecGroups, loadVectors, buildEmbeddings, vecZoom, vecFit,
