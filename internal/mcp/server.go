@@ -196,7 +196,7 @@ func (s *Server) registerTools() {
 			mcplib.WithDescription("Write or update a brain file directly. No LLM needed. Creates the file if it doesn't exist."),
 			mcplib.WithString("path",
 				mcplib.Required(),
-				mcplib.Description("Relative path within brain directory (e.g. 'opinions/testing.md')"),
+				mcplib.Description("Relative path within brain directory. Must start with an allowed category: "+strings.Join(brain.DefaultCategories, ", ")+". Example: 'opinions/testing.md'"),
 			),
 			mcplib.WithString("content",
 				mcplib.Required(),
@@ -242,7 +242,7 @@ func (s *Server) registerTools() {
 				mcplib.Description("Free-form teaching input (requires LLM provider). e.g. 'I prefer TDD for business logic'"),
 			),
 			mcplib.WithString("category",
-				mcplib.Description("Brain category: identity, opinions, style, decisions, or knowledge (direct mode, no LLM needed)"),
+				mcplib.Description("Brain category — must be one of: "+strings.Join(brain.DefaultCategories, ", ")+" (direct mode, no LLM needed)"),
 			),
 			mcplib.WithString("topic",
 				mcplib.Description("Topic slug for filename, e.g. 'testing-philosophy' (direct mode)"),
@@ -537,6 +537,14 @@ func (s *Server) handleBrainWrite(ctx context.Context, req mcplib.CallToolReques
 	if !strings.HasSuffix(path, ".md") {
 		path = path + ".md"
 	}
+	// Validate that the path starts with an allowed root category.
+	rootDir := strings.SplitN(path, "/", 2)[0]
+	if !brain.ValidCategory(rootDir) {
+		return mcplib.NewToolResultError(fmt.Sprintf(
+			"invalid category %q — must be one of: %s",
+			rootDir, strings.Join(brain.DefaultCategories, ", "),
+		)), nil
+	}
 
 	content, err := req.RequireString("content")
 	if err != nil {
@@ -665,7 +673,7 @@ func (s *Server) handleTeach(ctx context.Context, req mcplib.CallToolRequest) (*
 		{Role: "user", Content: "I want to teach you about myself: " + input},
 	}
 
-	teachPrompt := s.builder.BuildLearningPrompt([]string{}, messages)
+	teachPrompt := s.builder.BuildLearningPrompt(nil, messages)
 
 	resp, err := s.provider.Chat(ctx, "", []provider.Message{
 		{Role: "user", Content: teachPrompt},

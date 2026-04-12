@@ -3,6 +3,7 @@ package brain
 import (
 	"bytes"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -256,11 +257,25 @@ func (b *FileBrain) ListAll() ([]string, error) {
 	return b.listAll()
 }
 
+// ValidCategory reports whether cat is one of the allowed root brain categories.
+func ValidCategory(cat string) bool {
+	for _, c := range DefaultCategories {
+		if c == cat {
+			return true
+		}
+	}
+	return false
+}
+
 // Learn applies extracted learnings to the brain.
 func (b *FileBrain) Learn(learnings []Learning) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	for _, l := range learnings {
+		if !ValidCategory(l.Category) {
+			slog.Warn("learning skipped: invalid category", "category", l.Category, "topic", l.Topic)
+			continue
+		}
 		relPath := filepath.Join(l.Category, l.Topic+".md")
 
 		switch l.Action {
@@ -292,6 +307,14 @@ func (b *FileBrain) Learn(learnings []Learning) error {
 				if err := b.save(bf); err != nil {
 					return fmt.Errorf("create %s: %w", relPath, err)
 				}
+				continue
+			}
+			// Dedup: skip if leading text of new content already appears verbatim.
+			newSnippet := strings.ToLower(strings.TrimSpace(l.Content))
+			if len(newSnippet) > 60 {
+				newSnippet = newSnippet[:60]
+			}
+			if newSnippet != "" && strings.Contains(strings.ToLower(existing.Content), newSnippet) {
 				continue
 			}
 			existing.Content = strings.TrimRight(existing.Content, "\n") + "\n\n" + l.Content + "\n"
@@ -334,6 +357,63 @@ func (b *FileBrain) touch(relPath string) error {
 	bf.AccessCount++
 	bf.LastAccessed = DateOnly{time.Now()}
 	return b.save(bf)
+}
+
+// Decay lowers confidence on brain files that haven't been updated in a while.
+// high → medium after DecayHighToMediumDays; medium → low after DecayMediumToLowDays.
+// If dryRun is true, files are not modified.
+func (b *FileBrain) Decay(dryRun bool) ([]DecayResult, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	files, err := b.listAll()
+	if err != nil {
+		return nil, err
+	}
+
+	var results []DecayResult
+	now := time.Now()
+
+	for _, relPath := range files {
+		bf, err := b.load(relPath)
+		if err != nil {
+			continue
+		}
+
+		daysSince := int(now.Sub(bf.Updated.Time).Hours() / 24)
+		newConf := bf.Confidence
+
+		switch bf.Confidence {
+		case ConfidenceHigh:
+			if daysSince >= DecayHighToMediumDays {
+				newConf = ConfidenceMedium
+			}
+		case ConfidenceMedium:
+			if daysSince >= DecayMediumToLowDays {
+				newConf = ConfidenceLow
+			}
+		}
+
+		if newConf == bf.Confidence {
+			continue
+		}
+
+		results = append(results, DecayResult{
+			Path:      relPath,
+			OldConf:   bf.Confidence,
+			NewConf:   newConf,
+			DaysSince: daysSince,
+		})
+
+		if !dryRun {
+			bf.Confidence = newConf
+			if err := b.save(bf); err != nil {
+				return results, fmt.Errorf("save %s: %w", relPath, err)
+			}
+		}
+	}
+
+	return results, nil
 }
 
 func mergeTags(existing, new []string) []string {

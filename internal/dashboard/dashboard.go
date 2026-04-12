@@ -144,6 +144,8 @@ func (s *Server) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/files", auth(s.handleFiles))
 	mux.HandleFunc("/api/file", auth(s.handleFileContent))
 	mux.HandleFunc("/api/reorg", auth(s.handleReorg))
+	mux.HandleFunc("/api/migrate", auth(s.handleMigrate))
+	mux.HandleFunc("/api/decay", auth(s.handleDecay))
 	mux.HandleFunc("/api/status", auth(s.handleStatus))
 	mux.HandleFunc("/api/tools", auth(s.handleTools))
 	mux.HandleFunc("/api/tools/execute", auth(s.handleToolExecute))
@@ -755,6 +757,75 @@ func (s *Server) handleReorg(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, response{Actions: actions, Count: len(actions)})
 }
 
+func (s *Server) handleMigrate(w http.ResponseWriter, r *http.Request) {
+	apply := r.URL.Query().Get("apply") == "true"
+	if r.Method == "POST" {
+		var body struct {
+			Apply bool `json:"apply"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		apply = apply || body.Apply
+	}
+
+	type actionResult struct {
+		brain.ReorgAction
+		Confidence float64 `json:"confidence"`
+		LowConf    bool    `json:"low_confidence"`
+	}
+	type response struct {
+		Actions []actionResult `json:"actions"`
+		Count   int            `json:"count"`
+		Applied bool           `json:"applied"`
+	}
+
+	opts := brain.DefaultMigrateOptions()
+	opts.DryRun = !apply
+
+	plan, err := s.brain.Migrate(opts)
+	if err != nil || plan == nil {
+		writeJSON(w, response{Actions: []actionResult{}, Count: 0, Applied: apply})
+		return
+	}
+
+	var results []actionResult
+	for _, a := range plan.Actions {
+		results = append(results, actionResult{
+			ReorgAction: a,
+			Confidence:  a.Similarity,
+			LowConf:     a.Similarity < opts.LowConfidenceThreshold,
+		})
+	}
+	if results == nil {
+		results = []actionResult{}
+	}
+	writeJSON(w, response{Actions: results, Count: len(results), Applied: apply})
+}
+
+func (s *Server) handleDecay(w http.ResponseWriter, r *http.Request) {
+	apply := r.URL.Query().Get("apply") == "true"
+	if r.Method == "POST" {
+		var body struct {
+			Apply bool `json:"apply"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		apply = apply || body.Apply
+	}
+
+	results, err := s.brain.Decay(!apply)
+	if err != nil {
+		writeJSON(w, map[string]string{"error": err.Error()})
+		return
+	}
+	if results == nil {
+		results = []brain.DecayResult{}
+	}
+	writeJSON(w, map[string]interface{}{
+		"results": results,
+		"count":   len(results),
+		"applied": apply,
+	})
+}
+
 func (s *Server) handleTools(w http.ResponseWriter, r *http.Request) {
 	tools := s.getToolDefs()
 	writeJSON(w, map[string]interface{}{"tools": tools})
@@ -805,6 +876,12 @@ func (s *Server) getToolDefs() []ToolDef {
 		{Name: "brain_reorganize", Description: "Analyze brain for reorganization", Params: []ToolParam{
 			{Name: "mode", Type: "string", Required: false, Description: "all, dedup, recategorize, or consolidate"},
 			{Name: "apply", Type: "boolean", Required: false, Description: "Execute plan (default: false)"},
+		}},
+		{Name: "brain_migrate", Description: "Move brain files from invalid categories into valid ones", Params: []ToolParam{
+			{Name: "apply", Type: "boolean", Required: false, Description: "Execute migration (default: false = dry-run)"},
+		}},
+		{Name: "brain_decay", Description: "Lower confidence of stale brain files (high→medium after 180d, medium→low after 365d)", Params: []ToolParam{
+			{Name: "apply", Type: "boolean", Required: false, Description: "Apply decay (default: false = dry-run)"},
 		}},
 	}
 }
@@ -946,6 +1023,31 @@ func (s *Server) executeTool(toolName string, params map[string]string) (string,
 			return "No reorganization needed.", nil
 		}
 		data, _ := json.MarshalIndent(plan.Actions, "", "  ")
+		return string(data), nil
+
+	case "brain_migrate":
+		opts := brain.DefaultMigrateOptions()
+		opts.DryRun = params["apply"] != "true"
+		plan, err := s.brain.Migrate(opts)
+		if err != nil {
+			return "", err
+		}
+		if plan == nil || len(plan.Actions) == 0 {
+			return "All brain files are already in valid categories.", nil
+		}
+		data, _ := json.MarshalIndent(plan.Actions, "", "  ")
+		return string(data), nil
+
+	case "brain_decay":
+		apply := params["apply"] == "true"
+		results, err := s.brain.Decay(!apply)
+		if err != nil {
+			return "", err
+		}
+		if len(results) == 0 {
+			return "No stale brain files found.", nil
+		}
+		data, _ := json.MarshalIndent(results, "", "  ")
 		return string(data), nil
 
 	default:

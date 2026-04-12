@@ -1,6 +1,7 @@
 package brain
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -11,6 +12,11 @@ import (
 	"strings"
 	"time"
 )
+
+// VecIndexBuildTimeout is the maximum time allowed for the vector index build.
+// If Ollama is slow, we save partial vectors and release the lock rather than
+// blocking brain operations indefinitely.
+const VecIndexBuildTimeout = 5 * time.Minute
 
 // Index file names.
 const (
@@ -295,9 +301,19 @@ func (b *FileBrain) rebuildFullIndex() error {
 	b.indexCache = idx
 	b.indexCacheAt = time.Now()
 
-	// Build and save vector index for hybrid search.
+	// Snapshot chunk texts while the file cache is warm and lock is held.
+	// This lets us release the write lock before the slow Ollama API calls.
+	chunkTexts := b.snapshotChunkTexts(idx)
+
+	// Release write lock so brain reads (dashboard, queries) are not blocked
+	// during the potentially long vector embedding step.
 	slog.Debug("building vector index", "provider", b.embed.Provider)
-	vi := b.buildVecIndex(idx)
+	b.mu.Unlock()
+	ctx, cancel := context.WithTimeout(context.Background(), VecIndexBuildTimeout)
+	vi := b.buildVecIndexUnlocked(ctx, idx, chunkTexts)
+	cancel()
+	b.mu.Lock() // Re-acquire before modifying cached state
+
 	if vi != nil {
 		slog.Debug("saving vector index", "chunks", len(vi.ChunkVecs))
 		if err := b.saveVecIndex(vi); err != nil {
@@ -312,26 +328,49 @@ func (b *FileBrain) rebuildFullIndex() error {
 	return nil
 }
 
-// buildVecIndex selects the embedding backend and builds the vector index.
-func (b *FileBrain) buildVecIndex(idx *FullIndex) *VecIndex {
+// snapshotChunkTexts pre-extracts all chunk text strings while the file cache
+// is populated and the lock is held. The result is passed to buildVecIndexUnlocked
+// so that no file I/O is needed after the write lock is released.
+func (b *FileBrain) snapshotChunkTexts(idx *FullIndex) map[string]string {
+	texts := make(map[string]string, len(idx.Chunks))
+	for chunkKey, ce := range idx.Chunks {
+		bf, err := b.loadCached(ce.DocPath)
+		if err != nil {
+			continue
+		}
+		content := strings.TrimSpace(bf.Content)
+		chunkText := safeSubstring(content, ce.Offset, ce.Length)
+		if chunkText == "" {
+			continue
+		}
+		doc := idx.Documents[ce.DocPath]
+		prefix := ""
+		if len(doc.Tags) > 0 {
+			prefix = "Tags: " + strings.Join(doc.Tags, ", ") + ". "
+		}
+		texts[chunkKey] = prefix + chunkText
+	}
+	return texts
+}
+
+// buildVecIndexUnlocked builds the vector index without holding the write lock.
+// chunkTexts is a pre-loaded snapshot so no brain file I/O is needed.
+func (b *FileBrain) buildVecIndexUnlocked(ctx context.Context, idx *FullIndex, chunkTexts map[string]string) *VecIndex {
 	switch b.embed.Provider {
 	case EmbedOllama:
-		return b.tryOllamaEmbed(idx)
-
+		return b.tryOllamaEmbedUnlocked(ctx, idx, chunkTexts)
 	case EmbedLSI:
 		return buildVecIndexLSI(idx)
-
-	default: // Auto: try Ollama first, fall back to LSI.
-		if vi := b.tryOllamaEmbed(idx); vi != nil {
+	default: // Auto: try Ollama, fall back to LSI.
+		if vi := b.tryOllamaEmbedUnlocked(ctx, idx, chunkTexts); vi != nil {
 			return vi
 		}
 		return buildVecIndexLSI(idx)
 	}
 }
 
-// tryOllamaEmbed attempts to build the vector index using Ollama.
-// Loads the existing vector index for incremental embedding.
-func (b *FileBrain) tryOllamaEmbed(idx *FullIndex) *VecIndex {
+// tryOllamaEmbedUnlocked attempts Ollama embedding without holding the write lock.
+func (b *FileBrain) tryOllamaEmbedUnlocked(ctx context.Context, idx *FullIndex, chunkTexts map[string]string) *VecIndex {
 	embedder := NewOllamaEmbedder(OllamaEmbedConfig{
 		URL:   b.embed.OllamaURL,
 		Model: b.embed.OllamaModel,
@@ -341,12 +380,16 @@ func (b *FileBrain) tryOllamaEmbed(idx *FullIndex) *VecIndex {
 		slog.Debug("ollama embedder not available, skipping vector index")
 		return nil
 	}
-	slog.Debug("ollama embedder available, embedding chunks", "chunks", len(idx.Chunks))
 
-	// Load existing index for incremental rebuild.
+	// Load existing index for incremental rebuild (brief read lock).
+	b.mu.RLock()
 	existing, _ := b.loadVecIndex()
-	return buildVecIndexOllama(b, idx, embedder, existing)
+	b.mu.RUnlock()
+
+	slog.Debug("ollama embedder available, embedding chunks", "chunks", len(chunkTexts))
+	return buildVecIndexOllama(ctx, idx, embedder, existing, chunkTexts)
 }
+
 
 // LoadFullIndex reads the index_full.json file (public, read-locked).
 func (b *FileBrain) LoadFullIndex() (*FullIndex, error) {

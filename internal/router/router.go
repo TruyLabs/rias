@@ -24,12 +24,6 @@ const (
 
 const reindexDebounce = 2 * time.Second
 
-// Confidence level labels.
-const (
-	ConfidenceHigh   = "high"
-	ConfidenceMedium = "medium"
-	ConfidenceLow    = "low"
-)
 
 // ChatResult holds the result of a chat interaction.
 type ChatResult struct {
@@ -127,11 +121,11 @@ func (r *Router) Ask(ctx context.Context, question string) (*ChatResult, error) 
 		return nil, fmt.Errorf("llm chat: %w", err)
 	}
 
-	confidence := ConfidenceLow
+	confidence := brain.ConfidenceLow
 	if len(brainFiles) > HighConfidenceThreshold {
-		confidence = ConfidenceHigh
+		confidence = brain.ConfidenceHigh
 	} else if len(brainFiles) > MediumConfidenceThreshold {
-		confidence = ConfidenceMedium
+		confidence = brain.ConfidenceMedium
 	}
 
 	return &ChatResult{
@@ -207,11 +201,11 @@ func (r *Router) Chat(ctx context.Context, sess *session.Session, userInput stri
 	}
 
 	// Determine confidence based on brain files count
-	confidence := ConfidenceLow
+	confidence := brain.ConfidenceLow
 	if len(brainFiles) > HighConfidenceThreshold {
-		confidence = ConfidenceHigh
+		confidence = brain.ConfidenceHigh
 	} else if len(brainFiles) > MediumConfidenceThreshold {
-		confidence = ConfidenceMedium
+		confidence = brain.ConfidenceMedium
 	}
 
 	// 5. Add messages to session
@@ -228,7 +222,7 @@ func (r *Router) Chat(ctx context.Context, sess *session.Session, userInput stri
 	})
 
 	// 6. Extract learnings (non-fatal on error)
-	r.extractLearnings(ctx, brainPaths, sess)
+	r.extractLearnings(ctx, brainFiles, sess)
 
 	return &ChatResult{
 		Response:       resp.Content,
@@ -237,7 +231,7 @@ func (r *Router) Chat(ctx context.Context, sess *session.Session, userInput stri
 	}, nil
 }
 
-func (r *Router) extractLearnings(ctx context.Context, brainPaths []string, sess *session.Session) {
+func (r *Router) extractLearnings(ctx context.Context, brainFiles []*brain.BrainFile, sess *session.Session) {
 	if len(sess.Messages) < MinMessagesForLearning {
 		return
 	}
@@ -249,7 +243,7 @@ func (r *Router) extractLearnings(ctx context.Context, brainPaths []string, sess
 		lastTwo[1].Message,
 	}
 
-	learningPrompt := r.builder.BuildLearningPrompt(brainPaths, exchange)
+	learningPrompt := r.builder.BuildLearningPrompt(brainFiles, exchange)
 	resp, err := r.provider.Chat(ctx, "", []provider.Message{
 		{Role: "user", Content: learningPrompt},
 	})
