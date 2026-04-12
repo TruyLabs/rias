@@ -177,12 +177,13 @@ dialog::backdrop { background: rgba(0,0,0,0.7); backdrop-filter: blur(4px); }
 .grid-2-3-4 { display: grid; grid-template-columns: repeat(1, minmax(0, 1fr)); gap: 0.75rem; margin-bottom: 1.5rem; }
 .grid-2-3-5 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.75rem; margin-bottom: 1.5rem; }
 .grid-1-2 { display: grid; grid-template-columns: repeat(1, minmax(0, 1fr)); gap: 1rem; margin-bottom: 1.5rem; }
-.grid-3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.75rem; }
+.grid-3 { display: grid; grid-template-columns: repeat(1, minmax(0, 1fr)); gap: 0.75rem; }
 .grid-1-2-gap { display: grid; grid-template-columns: repeat(1, minmax(0, 1fr)); gap: 0.75rem; }
 @media (min-width: 640px) {
   .grid-2-3-4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .grid-2-3-5 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .grid-1-2-gap { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .grid-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
 @media (min-width: 1024px) {
   .grid-2-3-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
@@ -242,6 +243,17 @@ dialog::backdrop { background: rgba(0,0,0,0.7); backdrop-filter: blur(4px); }
   .sidebar-overlay.open { display: block; }
   .mobile-menu-btn { display: flex; align-items: center; justify-content: center; width: 2.5rem; height: 2.5rem; border-radius: 0.375rem; border: 1px solid #334155; background: #1e293b; color: #9ca3af; cursor: pointer; flex-shrink: 0; }
   .mobile-menu-btn:hover { background: #253347; color: #e5e7eb; }
+}
+
+/* Mobile overrides (< 640px) */
+@media (max-width: 639px) {
+  .card-base { padding: 1rem; }
+  dialog { max-width: 95vw; width: 95vw; }
+  .msg-bubble { max-width: 88%; }
+  .heading-xl { font-size: 1.25rem; line-height: 1.75rem; margin-bottom: 1rem; }
+  .heading-xl-tight { font-size: 1.25rem; line-height: 1.75rem; }
+  .stat-value { font-size: 1.5rem; line-height: 2rem; }
+  .vec-graph-container { height: 380px; }
 }
 
 </style>
@@ -315,7 +327,6 @@ dialog::backdrop { background: rgba(0,0,0,0.7); backdrop-filter: blur(4px); }
       <button @click="sidebarOpen = !sidebarOpen" type="button" class="mobile-menu-btn" aria-label="Toggle menu">
         <span aria-hidden="true" class="text-lg">&#9776;</span>
       </button>
-      <span class="text-sm font-semibold text-gray-300 capitalize hidden md:inline">{{ navItems.find(n => n.page === page)?.label || page }}</span>
       <div class="flex-1"></div>
       <!-- Provider + Embeddings -->
       <div class="items-center gap-4 hidden lg:flex">
@@ -357,17 +368,17 @@ dialog::backdrop { background: rgba(0,0,0,0.7); backdrop-filter: blur(4px); }
         <h2 id="overview-heading" class="heading-xl">Overview</h2>
 
         <!-- Stats -->
-        <div v-if="initialLoading" class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+        <div v-if="initialLoading" class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
           <div v-for="i in 4" :key="i" class="card-base"><div class="skeleton h-24 w-full"></div></div>
         </div>
-        <div v-else class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6" role="list" aria-label="Brain statistics">
+        <div v-else class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6" role="list" aria-label="Brain statistics">
           <!-- Files -->
           <div class="card-base" role="listitem">
             <div class="flex items-center gap-3">
               <div class="w-11 h-11 rounded-xl flex items-center justify-center flex-shrink-0 bg-blue-500/15 text-blue-400 text-lg" aria-hidden="true">&#128196;</div>
-              <div>
+              <div class="min-w-0">
                 <div class="stat-label" id="stat-files">Files</div>
-                <div class="text-3xl font-extrabold text-blue-400 mt-0.5 font-mono" aria-labelledby="stat-files">{{ overview.total_files || 0 }}</div>
+                <div class="text-3xl font-extrabold text-blue-400 mt-0.5 font-mono truncate" :title="String(overview.total_files || 0)" aria-labelledby="stat-files">{{ overview.total_files || 0 }}</div>
               </div>
             </div>
             <svg viewBox="0 0 100 24" class="w-full mt-3" style="height:28px" preserveAspectRatio="none" aria-hidden="true">
@@ -379,9 +390,9 @@ dialog::backdrop { background: rgba(0,0,0,0.7); backdrop-filter: blur(4px); }
           <div class="card-base" role="listitem">
             <div class="flex items-center gap-3">
               <div class="w-11 h-11 rounded-xl flex items-center justify-center flex-shrink-0 bg-green-500/15 text-green-400 text-lg" aria-hidden="true">&#128209;</div>
-              <div>
+              <div class="min-w-0">
                 <div class="stat-label" id="stat-words">Words</div>
-                <div class="text-3xl font-extrabold text-green-400 mt-0.5 font-mono" aria-labelledby="stat-words">{{ overview.total_words || 0 }}</div>
+                <div class="text-3xl font-extrabold text-green-400 mt-0.5 font-mono truncate" :title="String(overview.total_words || 0)" aria-labelledby="stat-words">{{ overview.total_words || 0 }}</div>
               </div>
             </div>
             <svg viewBox="0 0 100 24" class="w-full mt-3" style="height:28px" preserveAspectRatio="none" aria-hidden="true">
@@ -393,9 +404,9 @@ dialog::backdrop { background: rgba(0,0,0,0.7); backdrop-filter: blur(4px); }
           <div class="card-base" role="listitem">
             <div class="flex items-center gap-3">
               <div class="w-11 h-11 rounded-xl flex items-center justify-center flex-shrink-0 bg-purple-500/15 text-purple-400 text-lg" aria-hidden="true">&#9712;</div>
-              <div>
+              <div class="min-w-0">
                 <div class="stat-label" id="stat-chunks">Chunks</div>
-                <div class="text-3xl font-extrabold text-purple-400 mt-0.5 font-mono" aria-labelledby="stat-chunks">{{ overview.total_chunks || 0 }}</div>
+                <div class="text-3xl font-extrabold text-purple-400 mt-0.5 font-mono truncate" :title="String(overview.total_chunks || 0)" aria-labelledby="stat-chunks">{{ overview.total_chunks || 0 }}</div>
               </div>
             </div>
             <svg viewBox="0 0 100 24" class="w-full mt-3" style="height:28px" preserveAspectRatio="none" aria-hidden="true">
@@ -407,9 +418,9 @@ dialog::backdrop { background: rgba(0,0,0,0.7); backdrop-filter: blur(4px); }
           <div class="card-base" role="listitem">
             <div class="flex items-center gap-3">
               <div class="w-11 h-11 rounded-xl flex items-center justify-center flex-shrink-0 bg-yellow-500/15 text-yellow-400 text-lg" aria-hidden="true">&#127991;</div>
-              <div>
+              <div class="min-w-0">
                 <div class="stat-label" id="stat-tags">Tags</div>
-                <div class="text-3xl font-extrabold text-yellow-400 mt-0.5 font-mono" aria-labelledby="stat-tags">{{ overview.unique_tags || 0 }}</div>
+                <div class="text-3xl font-extrabold text-yellow-400 mt-0.5 font-mono truncate" :title="String(overview.unique_tags || 0)" aria-labelledby="stat-tags">{{ overview.unique_tags || 0 }}</div>
               </div>
             </div>
             <svg viewBox="0 0 100 24" class="w-full mt-3" style="height:28px" preserveAspectRatio="none" aria-hidden="true">
@@ -467,18 +478,21 @@ dialog::backdrop { background: rgba(0,0,0,0.7); backdrop-filter: blur(4px); }
             <table class="w-full text-sm" aria-label="Recent brain file activity">
               <thead><tr class="text-gray-600 text-[11px] uppercase tracking-wider">
                 <th scope="col" class="text-left py-2 px-3 border-b border-dark-600 sticky top-0 bg-dark-800">File</th>
-                <th scope="col" class="text-right py-2 px-3 border-b border-dark-600 sticky top-0 bg-dark-800">Words</th>
-                <th scope="col" class="text-right py-2 px-3 border-b border-dark-600 sticky top-0 bg-dark-800">Views</th>
+                <th scope="col" class="hidden sm:table-cell text-right py-2 px-3 border-b border-dark-600 sticky top-0 bg-dark-800">Words</th>
+                <th scope="col" class="hidden sm:table-cell text-right py-2 px-3 border-b border-dark-600 sticky top-0 bg-dark-800">Views</th>
                 <th scope="col" class="text-right py-2 px-3 border-b border-dark-600 sticky top-0 bg-dark-800">Updated</th>
               </tr></thead>
               <tbody>
                 <tr v-for="a in activity" :key="a.path" class="hover:bg-dark-700 transition-colors">
-                  <td class="py-2 px-3 border-b border-dark-600 font-mono text-xs">
-                    <button type="button" @click="viewFile(a.path)" class="link-btn">{{ a.path }}</button>
+                  <td class="py-2 px-3 border-b border-dark-600 font-mono text-xs max-w-0 w-full">
+                    <button type="button" @click="viewFile(a.path)" class="link-btn inline-flex items-center gap-1.5 min-w-0 max-w-full" :title="a.path">
+                      <span class="flex-shrink-0" aria-hidden="true">{{ categoryIcon(a.path) }}</span>
+                      <span class="truncate">{{ fileBaseName(a.path) }}</span>
+                    </button>
                   </td>
-                  <td class="py-2 px-3 border-b border-dark-600 text-right text-gray-500 font-mono text-xs">{{ a.word_count }}</td>
-                  <td class="py-2 px-3 border-b border-dark-600 text-right text-gray-500 font-mono text-xs">{{ a.access_count }}</td>
-                  <td class="py-2 px-3 border-b border-dark-600 text-right text-gray-500 font-mono text-xs">{{ a.updated }}</td>
+                  <td class="hidden sm:table-cell py-2 px-3 border-b border-dark-600 text-right text-gray-500 font-mono text-xs">{{ a.word_count }}</td>
+                  <td class="hidden sm:table-cell py-2 px-3 border-b border-dark-600 text-right text-gray-500 font-mono text-xs">{{ a.access_count }}</td>
+                  <td class="py-2 px-3 border-b border-dark-600 text-right text-gray-500 font-mono text-xs whitespace-nowrap truncate max-w-[8rem]" :title="a.updated">{{ fmtDate(a.updated) }}</td>
                 </tr>
               </tbody>
             </table>
@@ -504,14 +518,14 @@ dialog::backdrop { background: rgba(0,0,0,0.7); backdrop-filter: blur(4px); }
                 <th scope="col" class="text-left py-2 px-3 border-b border-dark-600 sticky top-0 bg-dark-800">
                   <button @click="toggleSort('path')" type="button" class="flex items-center gap-1 hover:text-gray-400 transition-colors focus-visible:outline-none">Path <span class="text-gray-700">{{ sortIcon('path') }}</span></button>
                 </th>
-                <th scope="col" class="text-left py-2 px-3 border-b border-dark-600 sticky top-0 bg-dark-800">Tags</th>
-                <th scope="col" class="text-left py-2 px-3 border-b border-dark-600 sticky top-0 bg-dark-800">
+                <th scope="col" class="hidden sm:table-cell text-left py-2 px-3 border-b border-dark-600 sticky top-0 bg-dark-800">Tags</th>
+                <th scope="col" class="hidden sm:table-cell text-left py-2 px-3 border-b border-dark-600 sticky top-0 bg-dark-800">
                   <button @click="toggleSort('confidence')" type="button" class="flex items-center gap-1 hover:text-gray-400 transition-colors focus-visible:outline-none">Confidence <span class="text-gray-700">{{ sortIcon('confidence') }}</span></button>
                 </th>
                 <th scope="col" class="text-right py-2 px-3 border-b border-dark-600 sticky top-0 bg-dark-800">
                   <button @click="toggleSort('word_count')" type="button" class="flex items-center gap-1 ml-auto hover:text-gray-400 transition-colors focus-visible:outline-none">Words <span class="text-gray-700">{{ sortIcon('word_count') }}</span></button>
                 </th>
-                <th scope="col" class="text-right py-2 px-3 border-b border-dark-600 sticky top-0 bg-dark-800">
+                <th scope="col" class="hidden md:table-cell text-right py-2 px-3 border-b border-dark-600 sticky top-0 bg-dark-800">
                   <button @click="toggleSort('access_count')" type="button" class="flex items-center gap-1 ml-auto hover:text-gray-400 transition-colors focus-visible:outline-none">Views <span class="text-gray-700">{{ sortIcon('access_count') }}</span></button>
                 </th>
                 <th scope="col" class="text-right py-2 px-3 border-b border-dark-600 sticky top-0 bg-dark-800">
@@ -520,21 +534,24 @@ dialog::backdrop { background: rgba(0,0,0,0.7); backdrop-filter: blur(4px); }
               </tr></thead>
               <tbody>
                 <tr v-for="f in filteredFiles" :key="f.path" class="hover:bg-dark-700 transition-colors">
-                  <td class="py-2 px-3 border-b border-dark-600 font-mono text-xs">
-                    <button type="button" @click="viewFile(f.path)" class="link-btn">{{ f.path }}</button>
+                  <td class="py-2 px-3 border-b border-dark-600 font-mono text-xs max-w-0 w-full">
+                    <button type="button" @click="viewFile(f.path)" class="link-btn inline-flex items-center gap-1.5 min-w-0 max-w-full" :title="f.path">
+                      <span class="flex-shrink-0" aria-hidden="true">{{ categoryIcon(f.path) }}</span>
+                      <span class="truncate">{{ fileBaseName(f.path) }}</span>
+                    </button>
                   </td>
-                  <td class="py-2 px-3 border-b border-dark-600">
+                  <td class="hidden sm:table-cell py-2 px-3 border-b border-dark-600">
                     <span v-for="t in (f.tags||[]).slice(0,3)" :key="t" class="tag-badge mr-1">{{ t }}</span>
                   </td>
-                  <td class="py-2 px-3 border-b border-dark-600">
+                  <td class="hidden sm:table-cell py-2 px-3 border-b border-dark-600">
                     <span v-if="f.confidence" class="status-badge"
                       :class="{'status-high': f.confidence==='high', 'status-medium': f.confidence==='medium', 'status-low': f.confidence==='low'}">
                       {{ f.confidence }}
                     </span>
                   </td>
                   <td class="py-2 px-3 border-b border-dark-600 text-right text-gray-500 font-mono text-xs">{{ f.word_count || 0 }}</td>
-                  <td class="py-2 px-3 border-b border-dark-600 text-right text-gray-500 font-mono text-xs">{{ f.access_count || 0 }}</td>
-                  <td class="py-2 px-3 border-b border-dark-600 text-right text-gray-500 font-mono text-xs">{{ f.updated || '-' }}</td>
+                  <td class="hidden md:table-cell py-2 px-3 border-b border-dark-600 text-right text-gray-500 font-mono text-xs">{{ f.access_count || 0 }}</td>
+                  <td class="py-2 px-3 border-b border-dark-600 text-right text-gray-500 font-mono text-xs whitespace-nowrap truncate max-w-[8rem]" :title="f.updated">{{ fmtDate(f.updated) }}</td>
                 </tr>
               </tbody>
             </table>
@@ -605,7 +622,7 @@ dialog::backdrop { background: rgba(0,0,0,0.7); backdrop-filter: blur(4px); }
           <span class="text-[11px] text-gray-600">{{ chatMode === 'brain' ? 'Answers use brain knowledge' : 'Direct LLM chat, no brain context' }}</span>
           <button v-if="chatMessages.length" @click="chatMessages = []" type="button" class="btn-secondary px-3 py-1 ml-auto" aria-label="Clear chat history">Clear</button>
         </div>
-        <div class="bg-dark-800 border border-dark-600 rounded-xl shadow flex flex-col" style="height: calc(100vh - 14rem)">
+        <div class="bg-dark-800 border border-dark-600 rounded-xl shadow flex flex-col" style="height: calc(100dvh - 14rem)">
           <!-- Messages -->
           <div ref="chatScroll" class="flex-1 overflow-y-auto p-5 space-y-4" role="log" aria-label="Chat messages" aria-live="polite">
             <div v-if="!chatMessages.length" class="text-sm text-gray-600 text-center py-12">
@@ -625,8 +642,8 @@ dialog::backdrop { background: rgba(0,0,0,0.7); backdrop-filter: blur(4px); }
                   <span class="text-[10px] text-gray-600 uppercase tracking-wider font-semibold">Sources:</span>
                   <div class="flex-wrap-sm-gap mt-1">
                     <button v-for="f in msg.brainFiles" :key="f" type="button" @click="viewFile(f)"
-                      class="source-tag">
-                      {{ f }}
+                      class="source-tag" :title="f">
+                      {{ categoryIcon(f) }} {{ fileBaseName(f) }}
                     </button>
                   </div>
                 </div>
@@ -636,6 +653,7 @@ dialog::backdrop { background: rgba(0,0,0,0.7); backdrop-filter: blur(4px); }
                     {{ msg.confidence }}
                   </span>
                 </div>
+                <div v-if="msg.time" class="text-[10px] text-gray-600 mt-1 truncate overflow-hidden whitespace-nowrap" :title="msg.time">{{ msg.time }}</div>
               </div>
             </div>
             <!-- Thinking indicator: only before first token -->
@@ -686,8 +704,9 @@ dialog::backdrop { background: rgba(0,0,0,0.7); backdrop-filter: blur(4px); }
             <div v-for="r in searchResults" :key="r.doc_path+r.chunk_id"
               class="p-3.5 border-b border-dark-600 rounded-md hover:bg-dark-700 transition-colors">
               <div class="flex items-center justify-between">
-                <button type="button" @click="viewFile(r.doc_path)" class="font-mono link-btn">
-                  {{ r.doc_path }}{{ r.chunk_id > 0 ? '#'+r.chunk_id : '' }}
+                <button type="button" @click="viewFile(r.doc_path)" class="font-mono link-btn inline-flex items-center gap-1.5 min-w-0" :title="r.doc_path">
+                  <span class="flex-shrink-0" aria-hidden="true">{{ categoryIcon(r.doc_path) }}</span>
+                  <span>{{ fileBaseName(r.doc_path) }}{{ r.chunk_id > 0 ? '#'+r.chunk_id : '' }}</span>
                 </button>
                 <span class="text-[11px] text-gray-600 font-mono bg-dark-700 px-2 py-0.5 rounded-full" aria-label="Score">{{ r.score.toFixed(2) }}</span>
               </div>
@@ -762,8 +781,11 @@ dialog::backdrop { background: rgba(0,0,0,0.7); backdrop-filter: blur(4px); }
               <p class="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Import Results</p>
               <div class="space-y-1">
                 <div v-for="r in importResults" :key="r.path" class="flex items-center justify-between text-xs py-1.5 px-2 bg-dark-800 rounded" :class="{'status-success': !r.error, 'status-error': r.error}">
-                  <span>{{ r.path }}</span>
-                  <span>{{ r.error ? '✕ ' + r.error : '✓' }}</span>
+                  <span class="inline-flex items-center gap-1.5 min-w-0 truncate" :title="r.path">
+                    <span class="flex-shrink-0" aria-hidden="true">{{ categoryIcon(r.path) }}</span>
+                    <span class="truncate">{{ fileBaseName(r.path) }}</span>
+                  </span>
+                  <span class="flex-shrink-0 ml-2">{{ r.error ? '✕ ' + r.error : '✓' }}</span>
                 </div>
               </div>
             </div>
@@ -861,10 +883,22 @@ dialog::backdrop { background: rgba(0,0,0,0.7); backdrop-filter: blur(4px); }
               :class="{'action-merge': a.type==='merge', 'action-move': a.type==='move', 'action-consolidate': a.type==='consolidate'}">
               {{ a.type }}
             </span>
-            <span v-if="a.type==='move'" class="font-mono text-xs">{{ a.source_paths[0] }} &rarr; {{ a.target_path }}</span>
-            <span v-else class="font-mono text-xs">&rarr; {{ a.target_path }}</span>
+            <span v-if="a.type==='move'" class="font-mono text-xs inline-flex items-center gap-1 flex-wrap">
+              <span :title="a.source_paths[0]" class="inline-flex items-center gap-1">
+                <span aria-hidden="true">{{ categoryIcon(a.source_paths[0]) }}</span>{{ fileBaseName(a.source_paths[0]) }}
+              </span>
+              &rarr;
+              <span :title="a.target_path" class="inline-flex items-center gap-1">
+                <span aria-hidden="true">{{ categoryIcon(a.target_path) }}</span>{{ fileBaseName(a.target_path) }}
+              </span>
+            </span>
+            <span v-else class="font-mono text-xs inline-flex items-center gap-1">
+              &rarr; <span aria-hidden="true">{{ categoryIcon(a.target_path) }}</span><span :title="a.target_path">{{ fileBaseName(a.target_path) }}</span>
+            </span>
             <div v-if="a.type!=='move' && a.source_paths" class="ml-5 mt-1">
-              <div v-for="s in a.source_paths" :key="s" class="font-mono text-[11px] text-gray-600">{{ s }}</div>
+              <div v-for="s in a.source_paths" :key="s" class="font-mono text-[11px] text-gray-600 inline-flex items-center gap-1" :title="s">
+                <span aria-hidden="true">{{ categoryIcon(s) }}</span>{{ fileBaseName(s) }}
+              </div>
             </div>
             <p class="text-xs text-gray-500 mt-1">{{ a.reason }}</p>
           </div>
@@ -904,7 +938,7 @@ dialog::backdrop { background: rgba(0,0,0,0.7); backdrop-filter: blur(4px); }
           <span style="font-size:11px;color:#374151;margin-left:0.25rem">scroll=zoom &bull; drag=rotate &bull; right-drag=pan</span>
         </div>
         <!-- 3D graph container -->
-        <div style="position:relative;width:100%;height:650px;border-radius:1rem;overflow:hidden;background:#0a0f1a;border:1px solid #334155">
+        <div class="vec-graph-container" style="position:relative;width:100%;height:650px;border-radius:1rem;overflow:hidden;background:#0a0f1a;border:1px solid #334155">
           <div id="vec-graph" style="width:100%;height:100%"></div>
           <!-- Loading overlay -->
           <div v-if="vecLoading" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(10,10,15,0.8);flex-direction:column;gap:1rem">
@@ -928,7 +962,9 @@ dialog::backdrop { background: rgba(0,0,0,0.7); backdrop-filter: blur(4px); }
           <div style="flex:1;min-width:0">
             <div style="font-size:11px;color:#6b7280;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:0.35rem">Selected Node</div>
             <div style="font-size:14px;color:#e5e7eb;font-weight:600;font-family:monospace;word-break:break-all">{{ vecSelected.label }}</div>
-            <div style="font-size:12px;color:#6b7280;margin-top:0.25rem">{{ vecSelected.doc }}</div>
+            <div style="font-size:12px;color:#6b7280;margin-top:0.25rem;display:flex;align-items:center;gap:0.375rem" :title="vecSelected.doc">
+              <span aria-hidden="true">{{ categoryIcon(vecSelected.doc) }}</span>{{ fileBaseName(vecSelected.doc) }}
+            </div>
           </div>
           <div style="display:flex;gap:1rem;flex-wrap:wrap">
             <div style="text-align:center">
@@ -961,7 +997,7 @@ dialog::backdrop { background: rgba(0,0,0,0.7); backdrop-filter: blur(4px); }
         <button type="button" @click="$refs.fileDialog.close()" class="text-gray-600 text-xl w-7 h-7 flex items-center justify-center rounded-md hover:bg-dark-800 hover:text-gray-300 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400" aria-label="Close dialog">&times;</button>
       </div>
       <div class="dialog-meta">
-        <span class="text-sm-small">Updated <span class="text-gray-500">{{ dialogFile.updated }}</span></span>
+        <span class="text-sm-small">Updated <span class="text-gray-500 whitespace-nowrap truncate" :title="dialogFile.updated">{{ fmtDate(dialogFile.updated) }}</span></span>
         <span class="text-sm-small">Confidence <span class="text-gray-500">{{ dialogFile.confidence }}</span></span>
         <span class="text-sm-small">Tags <span class="text-gray-500">{{ (dialogFile.tags||[]).join(', ') }}</span></span>
       </div>
@@ -975,7 +1011,17 @@ dialog::backdrop { background: rgba(0,0,0,0.7); backdrop-filter: blur(4px); }
       </div>
       <div class="overflow-y-auto p-5 flex-1" role="tabpanel" :aria-label="dialogTab + ' view'">
         <div v-if="dialogTab === 'preview'" class="md-content text-sm leading-relaxed text-gray-400" v-html="dialogRendered"></div>
-        <pre v-else class="font-mono text-xs text-gray-500 whitespace-pre-wrap bg-dark-900 border border-dark-600 rounded-md p-4">{{ dialogFile.content }}</pre>
+        <div v-else>
+          <div class="flex justify-end mb-1">
+            <button @click="copyDialogSource" type="button"
+              class="text-[10px] font-semibold px-2 py-0.5 rounded-md border border-dark-600 transition-colors"
+              :class="dialogCopied ? 'text-green-400 border-green-500/40' : 'text-gray-500 hover:text-blue-400 hover:border-blue-400/50'"
+              aria-label="Copy source">
+              {{ dialogCopied ? '&#10003; Copied' : 'Copy' }}
+            </button>
+          </div>
+          <pre class="font-mono text-xs text-gray-500 whitespace-pre-wrap bg-dark-900 border border-dark-600 rounded-md p-4">{{ dialogFile.content }}</pre>
+        </div>
       </div>
     </div>
   </dialog>
@@ -1268,6 +1314,12 @@ const app = createApp({
       { divider: true },
       { page: 'vectors', icon: '&#11835;', label: 'Vectors', badge: null },
     ]);
+
+    const CATEGORY_ICONS = { identity: '👤', opinions: '💬', style: '✏️', decisions: '⚡', knowledge: '📚', tasks: '✅' };
+    const categoryIcon = (path) => CATEGORY_ICONS[(path || '').split('/')[0]] || '📄';
+    const fileBaseName = (path) => { const i = (path || '').indexOf('/'); return i >= 0 ? path.slice(i + 1) : path; };
+    const fmtTime = () => { const d = new Date(); return d.toLocaleDateString([], {month:'short',day:'numeric'}) + ' · ' + d.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}); };
+    const fmtDate = (s) => { if (!s) return '-'; const d = new Date(s + 'T00:00:00'); return isNaN(d) ? s : d.toLocaleDateString([], {month:'short',day:'numeric',year:'numeric'}); };
 
     const sortedCategories = computed(() => Object.entries(overview.value.categories || {}).sort((a,b) => b[1]-a[1]));
     const maxCategory = computed(() => Math.max(...Object.values(overview.value.categories || {}), 1));
@@ -1564,6 +1616,12 @@ const app = createApp({
 
     // Connect snippets for MCP setup
     const copied = ref('');
+    const dialogCopied = ref(false);
+    const copyDialogSource = async () => {
+      await navigator.clipboard.writeText(dialogFile.value.content || '');
+      dialogCopied.value = true;
+      setTimeout(() => { dialogCopied.value = false; }, 2000);
+    };
     const connectSnippets = computed(() => {
       const name = info.value.agent_name || 'kai';
       const origin = window.location.origin;
@@ -1666,14 +1724,15 @@ const app = createApp({
     const sendChat = async () => {
       const msg = chatInput.value.trim();
       if (!msg) return;
-      chatMessages.value.push({ role: 'user', content: msg });
+      const now = fmtTime();
+      chatMessages.value.push({ role: 'user', content: msg, time: now });
       chatInput.value = '';
       chatLoading.value = true;
       chatStreaming.value = false;
       scrollChat();
 
       // Add empty assistant message that will be streamed into.
-      const reply = { role: 'assistant', content: '', rendered: null, brainFiles: null, confidence: null, streaming: true };
+      const reply = { role: 'assistant', content: '', rendered: null, brainFiles: null, confidence: null, streaming: true, time: now };
       chatMessages.value.push(reply);
       const replyIdx = chatMessages.value.length - 1;
 
@@ -1850,8 +1909,8 @@ const app = createApp({
       dialogFile, dialogTab, dialogRendered, fileDialog,
       currentTool, toolParams, toolResult, toolStatus, toolExecuting, toolTab, toolRendered, toolDialog,
       selectedFiles, dragActive, importing, importOptions, importResults,
-      navItems, sortedCategories, maxCategory, tasksDone, tasksPct, filteredFiles,
-      connectSnippets, copied, copySnippet, connectExpanded,
+      navItems, sortedCategories, maxCategory, tasksDone, tasksPct, filteredFiles, categoryIcon, fileBaseName, fmtDate,
+      connectSnippets, copied, copySnippet, connectExpanded, dialogCopied, copyDialogSource,
       toasts, showToast, dismissToast,
       initialLoading,
       filesFilter, filesSort, toggleSort, sortIcon,
