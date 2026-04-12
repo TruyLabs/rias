@@ -182,17 +182,34 @@ func buildVecIndexOllama(ctx context.Context, _ *FullIndex, embedder *OllamaEmbe
 	}
 }
 
-// embedConcurrent runs embedding jobs across multiple workers with progress logging.
-// Workers respect ctx — if it is cancelled or times out, remaining jobs are dropped
-// and partial results are returned (incremental rebuild will fill the rest next time).
+// batchJob is a batch of embedding jobs sent as a single Ollama request.
+type batchJob struct {
+	jobs []embedJob
+}
+
+// embedConcurrent runs embedding jobs in batches across multiple workers.
+// Batching reduces HTTP round-trips from O(chunks) to O(chunks/EmbedBatchSize).
+// Workers respect ctx — if cancelled/timed out, partial results are returned and
+// the incremental rebuild will fill the rest on the next run.
 func embedConcurrent(ctx context.Context, embedder *OllamaEmbedder, jobs []embedJob, hashes map[string]string) []embedResult {
 	total := len(jobs)
-	workers := EmbedWorkers
-	if workers > total {
-		workers = total
+
+	// Split jobs into batches.
+	var batches []batchJob
+	for i := 0; i < len(jobs); i += EmbedBatchSize {
+		end := i + EmbedBatchSize
+		if end > len(jobs) {
+			end = len(jobs)
+		}
+		batches = append(batches, batchJob{jobs: jobs[i:end]})
 	}
 
-	jobCh := make(chan embedJob, total)
+	workers := EmbedWorkers
+	if workers > len(batches) {
+		workers = len(batches)
+	}
+
+	batchCh := make(chan batchJob, len(batches))
 	resultCh := make(chan embedResult, total)
 
 	var done atomic.Int64
@@ -201,40 +218,47 @@ func embedConcurrent(ctx context.Context, embedder *OllamaEmbedder, jobs []embed
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			for job := range jobCh {
+			for batch := range batchCh {
 				select {
 				case <-ctx.Done():
 					return
 				default:
 				}
-				vec, err := embedder.Embed(job.text)
+				texts := make([]string, len(batch.jobs))
+				for i, j := range batch.jobs {
+					texts[i] = j.text
+				}
+				vecs, err := embedder.EmbedBatch(texts)
 				if err != nil {
-					done.Add(1)
+					done.Add(int64(len(batch.jobs)))
 					continue
 				}
-				normalizeF32(vec)
-				n := done.Add(1)
-				if n == 1 || n%int64(embedProgressInterval) == 0 || int(n) == total {
-					slog.Info("embedding chunks", "done", n, "total", total)
-				}
-				resultCh <- embedResult{
-					chunkKey: job.chunkKey,
-					vec:      vec,
-					hash:     hashes[job.chunkKey],
+				for i, job := range batch.jobs {
+					vec := vecs[i]
+					normalizeF32(vec)
+					n := done.Add(1)
+					if n == 1 || n%int64(embedProgressInterval) == 0 || int(n) == total {
+						slog.Info("embedding chunks", "done", n, "total", total)
+					}
+					resultCh <- embedResult{
+						chunkKey: job.chunkKey,
+						vec:      vec,
+						hash:     hashes[job.chunkKey],
+					}
 				}
 			}
 		}()
 	}
 
 dispatch:
-	for _, job := range jobs {
+	for _, batch := range batches {
 		select {
 		case <-ctx.Done():
 			break dispatch
-		case jobCh <- job:
+		case batchCh <- batch:
 		}
 	}
-	close(jobCh)
+	close(batchCh)
 
 	go func() {
 		wg.Wait()
@@ -250,6 +274,72 @@ dispatch:
 			"embedded", len(results), "total", total)
 	}
 	return results
+}
+
+// chunkKeyPath returns the file path portion of a chunk key ("path#N" → "path").
+func chunkKeyPath(ck string) string {
+	if i := strings.LastIndex(ck, "#"); i >= 0 {
+		return ck[:i]
+	}
+	return ck
+}
+
+// mergeVecIndex builds a merged VecIndex from a base and a delta.
+// Vectors for paths in removePaths are excluded from base before merging.
+// Delta vectors are always included (they represent newly embedded chunks).
+func mergeVecIndex(base *VecIndex, delta *VecIndex, removePaths map[string]bool) *VecIndex {
+	dims := delta.Dims
+	provider := delta.Provider
+	if dims == 0 && base != nil {
+		dims = base.Dims
+	}
+	if provider == "" && base != nil {
+		provider = base.Provider
+	}
+
+	capacity := len(delta.ChunkVecs)
+	if base != nil {
+		capacity += len(base.ChunkVecs)
+	}
+	merged := &VecIndex{
+		Dims:      dims,
+		Provider:  provider,
+		ChunkVecs: make(map[string][]float32, capacity),
+		Hashes:    make(map[string]string, capacity),
+	}
+
+	// Copy base vectors, skipping removed paths.
+	if base != nil {
+		for ck, vec := range base.ChunkVecs {
+			if !removePaths[chunkKeyPath(ck)] {
+				merged.ChunkVecs[ck] = vec
+			}
+		}
+		for ck, h := range base.Hashes {
+			if !removePaths[chunkKeyPath(ck)] {
+				merged.Hashes[ck] = h
+			}
+		}
+		// Carry forward LSI model if delta doesn't have one.
+		if base.Provider == "lsi" && len(base.TermVecs) > 0 && len(delta.TermVecs) == 0 {
+			merged.TermVecs = base.TermVecs
+			merged.IDF = base.IDF
+		}
+	}
+
+	// Overlay delta vectors (overwrite any base entries with same key).
+	for ck, vec := range delta.ChunkVecs {
+		merged.ChunkVecs[ck] = vec
+	}
+	for ck, h := range delta.Hashes {
+		merged.Hashes[ck] = h
+	}
+	if len(delta.TermVecs) > 0 {
+		merged.TermVecs = delta.TermVecs
+		merged.IDF = delta.IDF
+	}
+
+	return merged
 }
 
 // safeSubstring extracts a substring safely by offset and length.
