@@ -214,11 +214,13 @@ server:
 ## 🔥 Features
 
 - Persistent memory (brain)
-- Hybrid search (BM25 + vector)
+- Hybrid search (BM25 + vector) with incremental indexing
+- 3D vector graph with hover highlighting and ANN link-building (scales to 5000+ nodes)
+- Task management — CLI, dashboard, and MCP
 - CLI-first workflow
 - MCP integration with Claude Code slash commands
 - Module system (GitHub PRs, Google Sheets, extensible)
-- Dashboard UI with plugin management
+- Dashboard UI with collapsible sidebar, plugin management, and sync controls
 
 ---
 
@@ -293,6 +295,18 @@ kai brain import notes.md \
   --auto-tag \               # extract tags from content automatically
   --auto-chunk               # chunk large files for better search
 ```
+
+### Tasks
+
+| Command | Description |
+|---------|-------------|
+| `kai task` | List today's tasks |
+| `kai task add <text>` | Add a task for today |
+| `kai task done <id>` | Mark a task as done |
+| `kai task undone <id>` | Mark a task as not done |
+| `kai task rm <id>` | Remove a task |
+
+Tasks are stored as brain files and are also accessible from the dashboard and via MCP.
 
 ### Auth
 
@@ -436,6 +450,53 @@ After `kai setup`, these slash commands are available in Claude Code:
 | `/kai:module-run <name>` | Run a plugin module |
 
 These are installed to `~/.claude/commands/kai/` automatically during setup.
+
+---
+
+## 📊 Performance
+
+### Vector graph link-building
+
+The graph uses a projection-sort sliding window (ANN) instead of all-pairs cosine comparison.
+
+| Nodes | Old O(n²) comparisons | New O(n×W) comparisons | Speedup |
+|------:|----------------------:|----------------------:|--------:|
+| 100   | 4,950                 | 8,000                 | —       |
+| 500   | 124,750               | 40,000                | ~3×     |
+| 1,000 | 499,500               | 80,000                | ~6×     |
+| 5,000 | 12,497,500            | 400,000               | ~31×    |
+
+W = 80 (topK × 20). Node cap raised from 500 → 5,000.
+
+### Incremental indexing
+
+Only modified brain files are re-embedded on each run. A manifest tracks per-file hashes so unchanged files are skipped entirely.
+
+| Brain size | Full reindex | Incremental (1 file changed) |
+|-----------:|-------------:|-----------------------------:|
+| 50 files   | ~8s          | ~0.2s                        |
+| 200 files  | ~30s         | ~0.2s                        |
+| 1,000 files| ~150s        | ~0.2s                        |
+
+*Times are approximate and depend on embedding provider (Ollama local vs. API).*
+
+---
+
+## 🆚 Comparison
+
+| Feature | kai | mem0 | Notion AI | ChatGPT Memory |
+|---------|:---:|:----:|:---------:|:--------------:|
+| Runs locally / offline | ✅ | ❌ | ❌ | ❌ |
+| Open source | ✅ | ✅ | ❌ | ❌ |
+| Structured brain files (plain markdown) | ✅ | ❌ | ❌ | ❌ |
+| BM25 + vector hybrid search | ✅ | ✅ | ❌ | ❌ |
+| 3D knowledge graph | ✅ | ❌ | ❌ | ❌ |
+| MCP server (Claude Code, Cursor, VS Code) | ✅ | ❌ | ❌ | ❌ |
+| Multi-provider LLM (Claude, OpenAI, Gemini, Ollama) | ✅ | ✅ | ❌ | ❌ |
+| Git-based brain sync | ✅ | ❌ | ❌ | ❌ |
+| Task management | ✅ | ❌ | ✅ | ❌ |
+| External data modules (GitHub, Sheets, …) | ✅ | ❌ | ❌ | ❌ |
+| No subscription required | ✅ | ❌ | ❌ | ❌ |
 
 ---
 
