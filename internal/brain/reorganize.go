@@ -659,6 +659,126 @@ func (b *FileBrain) Reorganize(opts ReorgOptions) (*ReorgPlan, error) {
 	return combined, nil
 }
 
+// Migrate finds brain files whose root directory is not a valid category and
+// proposes moving them to the best-matching valid category.
+//
+// Scoring uses content, tags, AND filename tokens so sparse files get a better
+// signal. Normalized confidence (0–1) is stored in ReorgAction.Similarity.
+// When the target path already exists the action type is set to ActionConsolidate
+// so the source is merged into the existing file rather than overwriting it.
+func (b *FileBrain) Migrate(opts MigrateOptions) (*ReorgPlan, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	files, err := b.listAll()
+	if err != nil {
+		return nil, fmt.Errorf("list brain files: %w", err)
+	}
+
+	plan := &ReorgPlan{}
+	for _, relPath := range files {
+		parts := strings.SplitN(relPath, string(filepath.Separator), 2)
+
+		var currentCategory, filename string
+		if len(parts) == 1 {
+			currentCategory = ""
+			filename = parts[0]
+		} else {
+			currentCategory = parts[0]
+			filename = parts[1]
+		}
+
+		if ValidCategory(currentCategory) {
+			continue
+		}
+
+		bf, err := b.load(relPath)
+		if err != nil {
+			continue
+		}
+
+		// Score content + tags + filename tokens (slug split on - and _).
+		slug := strings.TrimSuffix(filepath.Base(filename), ".md")
+		slugText := strings.ReplaceAll(strings.ReplaceAll(slug, "-", " "), "_", " ")
+		text := strings.ToLower(bf.Content + " " + strings.Join(bf.Tags, " ") + " " + slugText)
+		tokens := tokenize(text)
+
+		scores := make(map[string]float64)
+		for _, tok := range tokens {
+			for _, cat := range kwToCategories[tok] {
+				scores[cat]++
+			}
+		}
+
+		// Normalized confidence: best / total across all categories.
+		var totalScore float64
+		for _, s := range scores {
+			totalScore += s
+		}
+
+		bestCat := "knowledge"
+		var bestScore float64
+		for _, cat := range DefaultCategories {
+			if scores[cat] > bestScore {
+				bestScore = scores[cat]
+				bestCat = cat
+			}
+		}
+
+		confidence := 0.0
+		if totalScore > 0 {
+			confidence = bestScore / totalScore
+		}
+
+		targetPath := filepath.Join(bestCat, filename)
+
+		// Build reason string.
+		src := fmt.Sprintf("%q", currentCategory)
+		if currentCategory == "" {
+			src = "brain root (no category)"
+		}
+		reason := fmt.Sprintf("root %s → %q (confidence %.0f%%)", src, bestCat, confidence*100)
+
+		// Detect target conflict: switch to consolidate so we merge, not overwrite.
+		actionType := ActionMove
+		targetFull, pathErr := b.safePath(targetPath)
+		if pathErr == nil {
+			if _, statErr := os.Stat(targetFull); statErr == nil {
+				actionType = ActionConsolidate
+				reason += " [target exists — will merge]"
+			}
+		}
+
+		plan.Actions = append(plan.Actions, ReorgAction{
+			Type:        actionType,
+			SourcePaths: []string{relPath},
+			TargetPath:  targetPath,
+			Reason:      reason,
+			Similarity:  confidence,
+		})
+	}
+
+	if !opts.DryRun && len(plan.Actions) > 0 {
+		trashSession := time.Now().Format("20060102-150405")
+		for _, action := range plan.Actions {
+			var err error
+			if action.Type == ActionConsolidate {
+				err = b.applyMergeOrConsolidate(action, trashSession, true)
+			} else {
+				err = b.applyMove(action, trashSession)
+			}
+			if err != nil {
+				return plan, fmt.Errorf("migrate %v: %w", action.SourcePaths, err)
+			}
+		}
+		if err := b.rebuildIndex(); err != nil {
+			return plan, fmt.Errorf("rebuild index: %w", err)
+		}
+	}
+
+	return plan, nil
+}
+
 // confidenceRank returns a numeric rank for confidence levels (0–3).
 func confidenceRank(c string) int {
 	switch c {

@@ -3,6 +3,7 @@ package brain
 import (
 	"bytes"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -29,11 +30,20 @@ type EmbedOptions struct {
 	OllamaModel string
 }
 
+const indexCacheTTL = 5 * time.Second
+
 // FileBrain is the file-based Brain implementation.
 type FileBrain struct {
-	root  string
-	mu    sync.RWMutex
-	embed EmbedOptions
+	root      string
+	mu        sync.RWMutex
+	embed     EmbedOptions
+	fileCache map[string]*BrainFile // transient, populated during rebuild only
+
+	// TTL caches — avoid repeated gzip decompression on rapid dashboard reads.
+	indexCache   *FullIndex
+	indexCacheAt time.Time
+	vecCache     *VecIndex
+	vecCacheAt   time.Time
 }
 
 // New creates a new FileBrain rooted at the given directory.
@@ -83,6 +93,23 @@ func (b *FileBrain) load(relPath string) (*BrainFile, error) {
 	bf.Path = relPath
 	bf.Content = string(rest)
 	return &bf, nil
+}
+
+// loadCached returns a brain file from the transient rebuild cache if available,
+// otherwise falls back to load(). Safe to call when fileCache is nil.
+func (b *FileBrain) loadCached(relPath string) (*BrainFile, error) {
+	if b.fileCache != nil {
+		if bf, ok := b.fileCache[relPath]; ok {
+			return bf, nil
+		}
+		bf, err := b.load(relPath)
+		if err != nil {
+			return nil, err
+		}
+		b.fileCache[relPath] = bf
+		return bf, nil
+	}
+	return b.load(relPath)
 }
 
 // Load reads and parses a brain file by relative path.
@@ -148,7 +175,52 @@ func (b *FileBrain) save(bf *BrainFile) error {
 func (b *FileBrain) Save(bf *BrainFile) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	b.indexCache = nil // invalidate — file content changed
 	return b.save(bf)
+}
+
+// loadFullIndexCached returns the cached full index if fresh, otherwise loads from disk.
+// Must be called with at least a read lock held.
+func (b *FileBrain) loadFullIndexCached() (*FullIndex, error) {
+	if b.indexCache != nil && time.Since(b.indexCacheAt) < indexCacheTTL {
+		return b.indexCache, nil
+	}
+	idx, err := b.loadFullIndex()
+	if err != nil {
+		return nil, err
+	}
+	b.indexCache = idx
+	b.indexCacheAt = time.Now()
+	return idx, nil
+}
+
+// LoadFullIndexCached returns the full index, using a short-lived cache to
+// avoid repeated gzip decompression across concurrent dashboard handlers.
+func (b *FileBrain) LoadFullIndexCached() (*FullIndex, error) {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	return b.loadFullIndexCached()
+}
+
+// loadVecIndexCached returns the cached vec index if fresh, otherwise loads from disk.
+func (b *FileBrain) loadVecIndexCached() (*VecIndex, error) {
+	if b.vecCache != nil && time.Since(b.vecCacheAt) < indexCacheTTL {
+		return b.vecCache, nil
+	}
+	vi, err := b.loadVecIndex()
+	if err != nil {
+		return nil, err
+	}
+	b.vecCache = vi
+	b.vecCacheAt = time.Now()
+	return vi, nil
+}
+
+// LoadVecIndexCached returns the vec index, using a short-lived cache.
+func (b *FileBrain) LoadVecIndexCached() (*VecIndex, error) {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	return b.loadVecIndexCached()
 }
 
 // listAll is the internal unlocked implementation of ListAll.
@@ -185,11 +257,25 @@ func (b *FileBrain) ListAll() ([]string, error) {
 	return b.listAll()
 }
 
+// ValidCategory reports whether cat is one of the allowed root brain categories.
+func ValidCategory(cat string) bool {
+	for _, c := range DefaultCategories {
+		if c == cat {
+			return true
+		}
+	}
+	return false
+}
+
 // Learn applies extracted learnings to the brain.
 func (b *FileBrain) Learn(learnings []Learning) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	for _, l := range learnings {
+		if !ValidCategory(l.Category) {
+			slog.Warn("learning skipped: invalid category", "category", l.Category, "topic", l.Topic)
+			continue
+		}
 		relPath := filepath.Join(l.Category, l.Topic+".md")
 
 		switch l.Action {
@@ -221,6 +307,14 @@ func (b *FileBrain) Learn(learnings []Learning) error {
 				if err := b.save(bf); err != nil {
 					return fmt.Errorf("create %s: %w", relPath, err)
 				}
+				continue
+			}
+			// Dedup: skip if leading text of new content already appears verbatim.
+			newSnippet := strings.ToLower(strings.TrimSpace(l.Content))
+			if len(newSnippet) > 60 {
+				newSnippet = newSnippet[:60]
+			}
+			if newSnippet != "" && strings.Contains(strings.ToLower(existing.Content), newSnippet) {
 				continue
 			}
 			existing.Content = strings.TrimRight(existing.Content, "\n") + "\n\n" + l.Content + "\n"
@@ -263,6 +357,63 @@ func (b *FileBrain) touch(relPath string) error {
 	bf.AccessCount++
 	bf.LastAccessed = DateOnly{time.Now()}
 	return b.save(bf)
+}
+
+// Decay lowers confidence on brain files that haven't been updated in a while.
+// high → medium after DecayHighToMediumDays; medium → low after DecayMediumToLowDays.
+// If dryRun is true, files are not modified.
+func (b *FileBrain) Decay(dryRun bool) ([]DecayResult, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	files, err := b.listAll()
+	if err != nil {
+		return nil, err
+	}
+
+	var results []DecayResult
+	now := time.Now()
+
+	for _, relPath := range files {
+		bf, err := b.load(relPath)
+		if err != nil {
+			continue
+		}
+
+		daysSince := int(now.Sub(bf.Updated.Time).Hours() / 24)
+		newConf := bf.Confidence
+
+		switch bf.Confidence {
+		case ConfidenceHigh:
+			if daysSince >= DecayHighToMediumDays {
+				newConf = ConfidenceMedium
+			}
+		case ConfidenceMedium:
+			if daysSince >= DecayMediumToLowDays {
+				newConf = ConfidenceLow
+			}
+		}
+
+		if newConf == bf.Confidence {
+			continue
+		}
+
+		results = append(results, DecayResult{
+			Path:      relPath,
+			OldConf:   bf.Confidence,
+			NewConf:   newConf,
+			DaysSince: daysSince,
+		})
+
+		if !dryRun {
+			bf.Confidence = newConf
+			if err := b.save(bf); err != nil {
+				return results, fmt.Errorf("save %s: %w", relPath, err)
+			}
+		}
+	}
+
+	return results, nil
 }
 
 func mergeTags(existing, new []string) []string {

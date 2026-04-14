@@ -31,3 +31,27 @@ sessions_path: ~/.kai/sessions
 server:
   listen_addr: 0.0.0.0:8080
   dashboard_pin: ""  # PIN lock for dashboard (empty = no auth)
+
+# Modules pull external data into the brain on demand via 'kai module run'.
+# Run 'kai module list' to see all available modules.
+modules:
+  - name: github_prs
+    enabled: false
+    config:
+      # token: ghp_xxx             # optional: GitHub PAT (classic or fine-grained)
+                                    # if omitted, uses `gh` CLI auth automatically
+      repos:
+        - owner/repo               # list of owner/repo to fetch PRs from
+      state: open                  # open | closed | all (default: open)
+      limit: 20                    # max PRs per repo (default: 20)
+
+  - name: google_sheets
+    enabled: false
+    config:
+      # Auth (pick one, or omit all to use gcloud CLI automatically):
+      # api_key: AIza...           # Google API key (sheet must be publicly accessible)
+      # access_token: ya29...      # OAuth token (for private sheets)
+      spreadsheet_id: ""           # ID from the sheet URL
+      range: "Sheet1!A:Z"          # cell range to read (default: Sheet1!A:Z)
+      category: knowledge          # brain category: knowledge | decisions | identity | opinions | style
+      topic: my-sheet              # brain file slug (used as filename)

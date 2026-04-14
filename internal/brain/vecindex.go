@@ -2,22 +2,28 @@ package brain
 
 import (
 	"compress/gzip"
+	"context"
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"math"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 )
 
 // VecIndexFileName is the on-disk file for the vector index.
 const VecIndexFileName = "vectors.bin.gz"
 
 // Concurrent embedding worker count.
-const EmbedWorkers = 4
+const EmbedWorkers = 12
+
+// embedProgressInterval controls how often progress is logged (every N chunks).
+const embedProgressInterval = 50
 
 // VecIndex stores chunk embeddings and metadata for query embedding.
 type VecIndex struct {
@@ -115,22 +121,15 @@ type embedResult struct {
 }
 
 // buildVecIndexOllama builds the vector index using Ollama embeddings.
+// chunkTexts is a pre-loaded map of chunkKey → text (avoids file I/O without lock).
 // Supports incremental mode: reuses vectors for unchanged chunks from existing index.
-// Uses concurrent workers for parallel Ollama API calls.
-func buildVecIndexOllama(b *FileBrain, idx *FullIndex, embedder *OllamaEmbedder, existing *VecIndex) *VecIndex {
-	// Prepare chunk text and detect changes.
-	type chunkInfo struct {
-		key  string
-		text string
-		hash string
-	}
-
+// Respects ctx cancellation/timeout — saves partial results if time runs out.
+func buildVecIndexOllama(ctx context.Context, _ *FullIndex, embedder *OllamaEmbedder, existing *VecIndex, chunkTexts map[string]string) *VecIndex {
 	var toEmbed []embedJob
 	reused := make(map[string][]float32)
 	hashes := make(map[string]string)
 	var dims int
 
-	// If we have an existing Ollama index, reuse unchanged vectors.
 	existingHashes := make(map[string]string)
 	existingVecs := make(map[string][]float32)
 	if existing != nil && existing.Provider == "ollama" && existing.Hashes != nil {
@@ -139,45 +138,27 @@ func buildVecIndexOllama(b *FileBrain, idx *FullIndex, embedder *OllamaEmbedder,
 		dims = existing.Dims
 	}
 
-	for chunkKey, ce := range idx.Chunks {
-		bf, err := b.load(ce.DocPath)
-		if err != nil {
+	for chunkKey, fullText := range chunkTexts {
+		if fullText == "" {
 			continue
 		}
-		content := strings.TrimSpace(bf.Content)
-		chunkText := safeSubstring(content, ce.Offset, ce.Length)
-		if chunkText == "" {
-			continue
-		}
-
-		// Prepend tags for richer context.
-		doc := idx.Documents[ce.DocPath]
-		prefix := ""
-		if len(doc.Tags) > 0 {
-			prefix = "Tags: " + strings.Join(doc.Tags, ", ") + ". "
-		}
-		fullText := prefix + chunkText
 		hash := contentHash(fullText)
 		hashes[chunkKey] = hash
 
-		// Check if unchanged — reuse existing vector.
 		if oldHash, ok := existingHashes[chunkKey]; ok && oldHash == hash {
 			if vec, ok := existingVecs[chunkKey]; ok {
 				reused[chunkKey] = vec
 				continue
 			}
 		}
-
 		toEmbed = append(toEmbed, embedJob{chunkKey: chunkKey, text: fullText})
 	}
 
-	// Embed new/changed chunks concurrently.
 	var newVecs []embedResult
 	if len(toEmbed) > 0 {
-		newVecs = embedConcurrent(embedder, toEmbed, hashes)
+		newVecs = embedConcurrent(ctx, embedder, toEmbed, hashes)
 	}
 
-	// Merge reused + new vectors.
 	chunkVecs := make(map[string][]float32, len(reused)+len(newVecs))
 	for k, v := range reused {
 		chunkVecs[k] = v
@@ -201,40 +182,83 @@ func buildVecIndexOllama(b *FileBrain, idx *FullIndex, embedder *OllamaEmbedder,
 	}
 }
 
-// embedConcurrent runs embedding jobs across multiple workers.
-func embedConcurrent(embedder *OllamaEmbedder, jobs []embedJob, hashes map[string]string) []embedResult {
-	workers := EmbedWorkers
-	if workers > len(jobs) {
-		workers = len(jobs)
+// batchJob is a batch of embedding jobs sent as a single Ollama request.
+type batchJob struct {
+	jobs []embedJob
+}
+
+// embedConcurrent runs embedding jobs in batches across multiple workers.
+// Batching reduces HTTP round-trips from O(chunks) to O(chunks/EmbedBatchSize).
+// Workers respect ctx — if cancelled/timed out, partial results are returned and
+// the incremental rebuild will fill the rest on the next run.
+func embedConcurrent(ctx context.Context, embedder *OllamaEmbedder, jobs []embedJob, hashes map[string]string) []embedResult {
+	total := len(jobs)
+
+	// Split jobs into batches.
+	var batches []batchJob
+	for i := 0; i < len(jobs); i += EmbedBatchSize {
+		end := i + EmbedBatchSize
+		if end > len(jobs) {
+			end = len(jobs)
+		}
+		batches = append(batches, batchJob{jobs: jobs[i:end]})
 	}
 
-	jobCh := make(chan embedJob, len(jobs))
-	resultCh := make(chan embedResult, len(jobs))
+	workers := EmbedWorkers
+	if workers > len(batches) {
+		workers = len(batches)
+	}
 
+	batchCh := make(chan batchJob, len(batches))
+	resultCh := make(chan embedResult, total)
+
+	var done atomic.Int64
 	var wg sync.WaitGroup
 	for w := 0; w < workers; w++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			for job := range jobCh {
-				vec, err := embedder.Embed(job.text)
+			for batch := range batchCh {
+				select {
+				case <-ctx.Done():
+					return
+				default:
+				}
+				texts := make([]string, len(batch.jobs))
+				for i, j := range batch.jobs {
+					texts[i] = j.text
+				}
+				vecs, err := embedder.EmbedBatch(texts)
 				if err != nil {
+					done.Add(int64(len(batch.jobs)))
 					continue
 				}
-				normalizeF32(vec)
-				resultCh <- embedResult{
-					chunkKey: job.chunkKey,
-					vec:      vec,
-					hash:     hashes[job.chunkKey],
+				for i, job := range batch.jobs {
+					vec := vecs[i]
+					normalizeF32(vec)
+					n := done.Add(1)
+					if n == 1 || n%int64(embedProgressInterval) == 0 || int(n) == total {
+						slog.Info("embedding chunks", "done", n, "total", total)
+					}
+					resultCh <- embedResult{
+						chunkKey: job.chunkKey,
+						vec:      vec,
+						hash:     hashes[job.chunkKey],
+					}
 				}
 			}
 		}()
 	}
 
-	for _, job := range jobs {
-		jobCh <- job
+dispatch:
+	for _, batch := range batches {
+		select {
+		case <-ctx.Done():
+			break dispatch
+		case batchCh <- batch:
+		}
 	}
-	close(jobCh)
+	close(batchCh)
 
 	go func() {
 		wg.Wait()
@@ -245,7 +269,77 @@ func embedConcurrent(embedder *OllamaEmbedder, jobs []embedJob, hashes map[strin
 	for r := range resultCh {
 		results = append(results, r)
 	}
+	if ctx.Err() != nil {
+		slog.Warn("vector index build timed out — partial index saved; remaining chunks embedded on next reindex",
+			"embedded", len(results), "total", total)
+	}
 	return results
+}
+
+// chunkKeyPath returns the file path portion of a chunk key ("path#N" → "path").
+func chunkKeyPath(ck string) string {
+	if i := strings.LastIndex(ck, "#"); i >= 0 {
+		return ck[:i]
+	}
+	return ck
+}
+
+// mergeVecIndex builds a merged VecIndex from a base and a delta.
+// Vectors for paths in removePaths are excluded from base before merging.
+// Delta vectors are always included (they represent newly embedded chunks).
+func mergeVecIndex(base *VecIndex, delta *VecIndex, removePaths map[string]bool) *VecIndex {
+	dims := delta.Dims
+	provider := delta.Provider
+	if dims == 0 && base != nil {
+		dims = base.Dims
+	}
+	if provider == "" && base != nil {
+		provider = base.Provider
+	}
+
+	capacity := len(delta.ChunkVecs)
+	if base != nil {
+		capacity += len(base.ChunkVecs)
+	}
+	merged := &VecIndex{
+		Dims:      dims,
+		Provider:  provider,
+		ChunkVecs: make(map[string][]float32, capacity),
+		Hashes:    make(map[string]string, capacity),
+	}
+
+	// Copy base vectors, skipping removed paths.
+	if base != nil {
+		for ck, vec := range base.ChunkVecs {
+			if !removePaths[chunkKeyPath(ck)] {
+				merged.ChunkVecs[ck] = vec
+			}
+		}
+		for ck, h := range base.Hashes {
+			if !removePaths[chunkKeyPath(ck)] {
+				merged.Hashes[ck] = h
+			}
+		}
+		// Carry forward LSI model if delta doesn't have one.
+		if base.Provider == "lsi" && len(base.TermVecs) > 0 && len(delta.TermVecs) == 0 {
+			merged.TermVecs = base.TermVecs
+			merged.IDF = base.IDF
+		}
+	}
+
+	// Overlay delta vectors (overwrite any base entries with same key).
+	for ck, vec := range delta.ChunkVecs {
+		merged.ChunkVecs[ck] = vec
+	}
+	for ck, h := range delta.Hashes {
+		merged.Hashes[ck] = h
+	}
+	if len(delta.TermVecs) > 0 {
+		merged.TermVecs = delta.TermVecs
+		merged.IDF = delta.IDF
+	}
+
+	return merged
 }
 
 // safeSubstring extracts a substring safely by offset and length.
@@ -383,7 +477,7 @@ func (b *FileBrain) saveVecIndex(vi *VecIndex) error {
 	}
 	defer f.Close()
 
-	gz, err := gzip.NewWriterLevel(f, gzip.BestCompression)
+	gz, err := gzip.NewWriterLevel(f, gzip.DefaultCompression)
 	if err != nil {
 		os.Remove(tmpPath)
 		return fmt.Errorf("create gzip writer: %w", err)

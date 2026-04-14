@@ -216,8 +216,9 @@ server:
 - Persistent memory (brain)
 - Hybrid search (BM25 + vector)
 - CLI-first workflow
-- MCP integration
-- Dashboard UI
+- MCP integration with Claude Code slash commands
+- Module system (GitHub PRs, Google Sheets, extensible)
+- Dashboard UI with plugin management
 
 ---
 
@@ -252,7 +253,7 @@ Initialize your `~/.kai/` directory and register as an MCP server:
 kai setup
 ```
 
-This creates `~/.kai/brain/`, `~/.kai/sessions/`, a default `~/.kai/config.yaml`, and registers kai in `~/.mcp.json` for Claude Code.
+This creates `~/.kai/brain/`, `~/.kai/sessions/`, a default `~/.kai/config.yaml`, registers kai in `~/.mcp.json` for Claude Code, and installs `/kai:*` slash commands.
 
 ---
 
@@ -299,6 +300,44 @@ kai brain import notes.md \
 |---------|-------------|
 | `kai auth set-key --provider <name>` | Save an API key for a provider |
 | `kai auth status` | Show configured vs. unconfigured providers |
+
+### Modules (Plugins)
+
+| Command | Description |
+|---------|-------------|
+| `kai module list` | List available modules and their enabled status |
+| `kai module <name>` | Run a specific module (e.g. `kai module github_prs`) |
+| `kai module --all` | Run all enabled modules |
+
+Modules pull external data into the brain. Configure them in `config.yaml`:
+
+```yaml
+modules:
+  - name: github_prs
+    enabled: true
+    config:
+      token: ${GITHUB_TOKEN}
+      repos:
+        - owner/repo
+      state: open
+      limit: 20
+
+  - name: google_sheets
+    enabled: true
+    config:
+      api_key: ${GOOGLE_API_KEY}
+      spreadsheet_id: "your-sheet-id"
+      range: "Sheet1!A:Z"
+      category: knowledge
+      topic: my-sheet
+```
+
+Built-in modules:
+
+| Module | Description |
+|--------|-------------|
+| `github_prs` | Fetch pull requests from GitHub repositories |
+| `google_sheets` | Read a Google Sheet into the brain |
 
 ### Sync
 
@@ -379,6 +418,24 @@ VS Code MCP support is available via extensions (Cline, Continue, or GitHub Copi
 ```
 
 Refer to your extension's documentation for the exact config file location.
+
+### Claude Code Slash Commands
+
+After `kai setup`, these slash commands are available in Claude Code:
+
+| Command | Description |
+|---------|-------------|
+| `/kai:ask <question>` | Ask kai using brain context |
+| `/kai:teach <input>` | Teach kai something new |
+| `/kai:brain-list` | List all brain files |
+| `/kai:brain-read <path>` | Read a brain file |
+| `/kai:brain-search <query>` | Search brain by keywords |
+| `/kai:brain-write` | Write or update a brain file |
+| `/kai:brain-reorganize` | Analyze brain for reorganization |
+| `/kai:module-list` | List available plugins |
+| `/kai:module-run <name>` | Run a plugin module |
+
+These are installed to `~/.claude/commands/kai/` automatically during setup.
 
 ---
 

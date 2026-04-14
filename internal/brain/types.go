@@ -7,6 +7,13 @@ import (
 // DateFormat is the standard date format used across brain files.
 const DateFormat = "2006-01-02"
 
+// Confidence level labels used in brain file frontmatter.
+const (
+	ConfidenceHigh   = "high"
+	ConfidenceMedium = "medium"
+	ConfidenceLow    = "low"
+)
+
 // File system permissions for brain data.
 const (
 	DirPermissions  = 0755
@@ -14,7 +21,7 @@ const (
 )
 
 // DefaultCategories are the standard brain knowledge categories.
-var DefaultCategories = []string{"identity", "opinions", "style", "decisions", "knowledge"}
+var DefaultCategories = []string{"identity", "opinions", "style", "decisions", "knowledge", "tasks"}
 
 // DateOnly is a time.Time that marshals/unmarshals as "2006-01-02".
 type DateOnly struct {
@@ -97,6 +104,7 @@ type DocEntry struct {
 	Updated     string   `json:"updated"`
 	AccessCount int      `json:"access_count"`
 	ChunkCount  int      `json:"chunk_count,omitempty"`
+	Confidence  string   `json:"confidence,omitempty"`
 }
 
 // ChunkEntry stores metadata for a single chunk within a document.
@@ -144,6 +152,35 @@ type ReorgAction struct {
 // ReorgPlan is a set of proposed reorganization actions.
 type ReorgPlan struct {
 	Actions []ReorgAction `json:"actions"`
+}
+
+// LowConfidenceThresholdDefault is the default confidence below which a
+// category suggestion is considered uncertain and flagged for review.
+const LowConfidenceThresholdDefault = 0.4
+
+// MigrateOptions controls the behaviour of Migrate.
+type MigrateOptions struct {
+	DryRun                 bool
+	LowConfidenceThreshold float64 // 0–1; suggestions below this are flagged
+}
+
+// DefaultMigrateOptions returns sensible defaults (dry-run, threshold 0.4).
+func DefaultMigrateOptions() MigrateOptions {
+	return MigrateOptions{DryRun: true, LowConfidenceThreshold: LowConfidenceThresholdDefault}
+}
+
+// Decay thresholds: days since last update before confidence is downgraded.
+const (
+	DecayHighToMediumDays = 180
+	DecayMediumToLowDays  = 365
+)
+
+// DecayResult describes a confidence change applied (or proposed) by Decay.
+type DecayResult struct {
+	Path      string
+	OldConf   string
+	NewConf   string
+	DaysSince int
 }
 
 // ReorgOptions controls reorganization behavior.

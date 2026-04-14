@@ -98,7 +98,7 @@ func runTeachMode(cfg *config.Config) error {
 
 		// Use LLM to extract learning from direct teaching
 		teachPrompt := builder.BuildLearningPrompt(
-			[]string{},
+			nil,
 			[]provider.Message{
 				{Role: "user", Content: "I want to teach you about myself: " + input},
 			},

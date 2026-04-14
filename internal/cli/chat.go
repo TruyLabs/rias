@@ -9,9 +9,12 @@ import (
 	"strings"
 	"time"
 
+	"sort"
+
 	"github.com/norenis/kai/internal/auth"
 	"github.com/norenis/kai/internal/brain"
 	"github.com/norenis/kai/internal/config"
+	"github.com/norenis/kai/internal/module"
 	"github.com/norenis/kai/internal/prompt"
 	"github.com/norenis/kai/internal/provider"
 	"github.com/norenis/kai/internal/retriever"
@@ -120,13 +123,13 @@ func buildRouter(cfg *config.Config) (*router.Router, *brain.FileBrain, provider
 	return r, b, prov, sessMgr, nil
 }
 
-func runInteractiveChat(r *router.Router, sessMgr *session.Manager, cfg *config.Config) error {
+func runInteractiveChat(r *router.Router, b *brain.FileBrain, sessMgr *session.Manager, cfg *config.Config) error {
 	sess := sessMgr.New(cfg.Provider)
 	reader := bufio.NewReader(os.Stdin)
 	ctx := context.Background()
 
 	fmt.Printf("%s — your digital twin\n", cfg.AgentName())
-	fmt.Println("Type /quit to exit, /brain to see context, /confidence for last confidence level")
+	fmt.Println("Type /quit to exit, /brain to see context, /confidence for last confidence level, /module for plugins")
 	fmt.Println()
 
 	var lastResult *router.ChatResult
@@ -175,6 +178,16 @@ func runInteractiveChat(r *router.Router, sessMgr *session.Manager, cfg *config.
 			topic := strings.TrimPrefix(input, "/forget ")
 			fmt.Printf("Forgetting %q... (not yet implemented)\n\n", topic)
 			continue
+		case input == "/module" || input == "/module list":
+			handleSlashModuleList(cfg)
+			continue
+		case input == "/module --all":
+			handleSlashModuleRun(cfg, b, "")
+			continue
+		case strings.HasPrefix(input, "/module "):
+			name := strings.TrimPrefix(input, "/module ")
+			handleSlashModuleRun(cfg, b, name)
+			continue
 		}
 
 		result, err := r.Chat(ctx, sess, input)
@@ -189,6 +202,43 @@ func runInteractiveChat(r *router.Router, sessMgr *session.Manager, cfg *config.
 
 	sessMgr.Save(sess)
 	return nil
+}
+
+// handleSlashModuleList prints all registered modules and their enabled status.
+func handleSlashModuleList(cfg *config.Config) {
+	reg := module.Default()
+	available := reg.Available()
+	sort.Strings(available)
+
+	enabled := make(map[string]bool, len(cfg.Modules))
+	for _, mc := range cfg.Modules {
+		if mc.Enabled {
+			enabled[mc.Name] = true
+		}
+	}
+
+	fmt.Println()
+	for _, name := range available {
+		tag := ""
+		if enabled[name] {
+			tag = " [enabled]"
+		}
+		fmt.Printf("%-22s%-10s %s\n", name, tag, reg.Description(name))
+	}
+	fmt.Println()
+}
+
+// handleSlashModuleRun runs a named module (or all enabled modules when name is empty).
+func handleSlashModuleRun(cfg *config.Config, b *brain.FileBrain, name string) {
+	if name == "" {
+		if err := runEnabledModules(cfg, b); err != nil {
+			fmt.Printf("module error: %v\n\n", err)
+		}
+		return
+	}
+	if err := execModule(cfg, b, name); err != nil {
+		fmt.Printf("module error: %v\n\n", err)
+	}
 }
 
 func runOneShotAsk(r *router.Router, sessMgr *session.Manager, cfg *config.Config, question string) error {

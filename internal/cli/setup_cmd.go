@@ -7,15 +7,13 @@ import (
 	"os/exec"
 	"path/filepath"
 
+	kai "github.com/norenis/kai"
 	"github.com/norenis/kai/internal/brain"
 	"github.com/norenis/kai/internal/config"
 	"github.com/spf13/cobra"
 )
 
-const (
-	mcpConfigName = "kai"
-	moduleURL     = "github.com/norenis/kai/cmd/kai@latest"
-)
+const moduleURL = "github.com/norenis/kai/cmd/kai@latest"
 
 func newSetupCmd() *cobra.Command {
 	var useLocal bool
@@ -87,18 +85,24 @@ sessions_path: %s
 	}
 
 	// Step 3: Register as Claude Code MCP server.
-	if err := registerMCPServer(homeDir, configPath, useLocal); err != nil {
+	if err := registerMCPServer(homeDir, configPath, useLocal, agentName); err != nil {
 		return fmt.Errorf("register MCP server: %w", err)
+	}
+
+	// Step 4: Install Claude Code slash commands.
+	if err := installClaudeCommands(homeDir, agentName); err != nil {
+		fmt.Printf("  ⚠ Could not install slash commands: %v\n", err)
 	}
 
 	fmt.Printf("\nSetup complete! %s is ready as an MCP server for Claude Code.\n", agentName)
 	fmt.Println("\nNext steps:")
 	fmt.Println("  1. Restart Claude Code to pick up the MCP server")
-	fmt.Printf("  2. Ask Claude Code to teach %s about you\n", agentName)
+	fmt.Printf("  2. Use /%s:ask, /%s:teach, /%s:brain-search, etc.\n", agentName, agentName, agentName)
+	fmt.Printf("  3. Ask Claude Code to teach %s about you\n", agentName)
 	return nil
 }
 
-func registerMCPServer(homeDir, configPath string, useLocal bool) error {
+func registerMCPServer(homeDir, configPath string, useLocal bool, agentName string) error {
 	mcpFile := filepath.Join(homeDir, ".mcp.json")
 
 	var mcpConfig map[string]interface{}
@@ -121,12 +125,12 @@ func registerMCPServer(homeDir, configPath string, useLocal bool) error {
 
 	if useLocal {
 		// Use the current binary directly.
-		kaiPath, err := exec.LookPath(config.DefaultAgentName)
+		kaiPath, err := exec.LookPath(agentName)
 		if err != nil {
 			// Fall back to the current executable.
 			kaiPath, err = os.Executable()
 			if err != nil {
-				return fmt.Errorf("%s not found on PATH and cannot determine current executable", config.DefaultAgentName)
+				return fmt.Errorf("%s not found on PATH and cannot determine current executable", agentName)
 			}
 		}
 		entry = map[string]interface{}{
@@ -147,7 +151,7 @@ func registerMCPServer(homeDir, configPath string, useLocal bool) error {
 		fmt.Printf("  Mode: go run %s\n", moduleURL)
 	}
 
-	servers[mcpConfigName] = entry
+	servers[agentName] = entry
 
 	data, err := json.MarshalIndent(mcpConfig, "", "  ")
 	if err != nil {
@@ -158,5 +162,24 @@ func registerMCPServer(homeDir, configPath string, useLocal bool) error {
 		return err
 	}
 	fmt.Printf("  MCP config: %s\n", mcpFile)
+	return nil
+}
+
+// installClaudeCommands writes the slash commands to ~/.claude/commands/<agentName>/.
+func installClaudeCommands(homeDir, agentName string) error {
+	cmdDir := filepath.Join(homeDir, ".claude", "commands", agentName)
+	if err := os.MkdirAll(cmdDir, 0755); err != nil {
+		return err
+	}
+
+	cmds := kai.ClaudeCommands(agentName)
+	for name, content := range cmds {
+		path := filepath.Join(cmdDir, name+".md")
+		if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+			return fmt.Errorf("write %s: %w", name, err)
+		}
+	}
+
+	fmt.Printf("  Commands: %s (%d slash commands)\n", cmdDir, len(cmds))
 	return nil
 }

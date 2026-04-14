@@ -1,6 +1,7 @@
 package brain
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -9,7 +10,13 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 )
+
+// VecIndexBuildTimeout is the maximum time allowed for the vector index build.
+// If Ollama is slow, we save partial vectors and release the lock rather than
+// blocking brain operations indefinitely.
+const VecIndexBuildTimeout = 5 * time.Minute
 
 // Index file names.
 const (
@@ -47,6 +54,16 @@ func (b *FileBrain) RebuildIndex() error {
 	return b.rebuildIndex()
 }
 
+// RebuildIndexIncremental performs a file-level differential rebuild.
+// Only files whose content hash has changed since the last index are re-processed.
+// Falls back to a full rebuild when the manifest is absent or more than half the
+// files have changed.
+func (b *FileBrain) RebuildIndexIncremental() error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.rebuildIndexIncremental()
+}
+
 // RebuildTagIndex rebuilds only the lightweight tag index (index.json).
 // Use this after writes — it is fast and does not call Ollama.
 func (b *FileBrain) RebuildTagIndex() error {
@@ -57,10 +74,30 @@ func (b *FileBrain) RebuildTagIndex() error {
 
 // rebuildIndex is the internal unlocked implementation of RebuildIndex.
 func (b *FileBrain) rebuildIndex() error {
+	// Prime a shared file cache so each brain file is read from disk only once
+	// across the tag, BM25, and vector index phases.
+	b.fileCache = make(map[string]*BrainFile)
+	defer func() { b.fileCache = nil }()
+
 	if err := b.rebuildTagIndex(); err != nil {
 		return err
 	}
-	return b.rebuildFullIndex()
+	if err := b.rebuildFullIndex(); err != nil {
+		return err
+	}
+
+	// Save manifest so the next run can use incremental mode.
+	files, err := b.listAll()
+	if err == nil && b.indexCache != nil {
+		chunkCounts := make(map[string]int, len(b.indexCache.Documents))
+		for path, doc := range b.indexCache.Documents {
+			chunkCounts[path] = doc.ChunkCount
+		}
+		if err := b.buildAndSaveManifest(files, chunkCounts); err != nil {
+			slog.Debug("failed to save incremental manifest after full rebuild", "err", err)
+		}
+	}
+	return nil
 }
 
 // rebuildTagIndex rebuilds only index.json (tag-based lookup). Fast, no Ollama.
@@ -74,7 +111,7 @@ func (b *FileBrain) rebuildTagIndex() error {
 	slog.Debug("rebuilding tag index", "files", len(files))
 
 	for _, f := range files {
-		bf, err := b.load(f)
+		bf, err := b.loadCached(f)
 		if err != nil {
 			slog.Debug("tag index: skipping unreadable file", "path", f, "err", err)
 			continue
@@ -185,7 +222,7 @@ func (b *FileBrain) rebuildFullIndex() error {
 	var totalDocWords, totalChunkWords int
 
 	for _, f := range files {
-		bf, err := b.load(f)
+		bf, err := b.loadCached(f)
 		if err != nil {
 			continue
 		}
@@ -208,6 +245,7 @@ func (b *FileBrain) rebuildFullIndex() error {
 			Updated:     bf.Updated.Time.Format(DateFormat),
 			AccessCount: bf.AccessCount,
 			ChunkCount:  len(chunks),
+			Confidence:  bf.Confidence,
 		}
 		idx.TotalDocs++
 
@@ -284,15 +322,30 @@ func (b *FileBrain) rebuildFullIndex() error {
 	if err := b.saveFullIndex(idx); err != nil {
 		return err
 	}
+	// Warm the full-index cache so the next read avoids disk I/O.
+	b.indexCache = idx
+	b.indexCacheAt = time.Now()
 
-	// Build and save vector index for hybrid search.
+	// Snapshot chunk texts while the file cache is warm and lock is held.
+	// This lets us release the write lock before the slow Ollama API calls.
+	chunkTexts := b.snapshotChunkTexts(idx)
+
+	// Release write lock so brain reads (dashboard, queries) are not blocked
+	// during the potentially long vector embedding step.
 	slog.Debug("building vector index", "provider", b.embed.Provider)
-	vi := b.buildVecIndex(idx)
+	b.mu.Unlock()
+	ctx, cancel := context.WithTimeout(context.Background(), VecIndexBuildTimeout)
+	vi := b.buildVecIndexUnlocked(ctx, idx, chunkTexts)
+	cancel()
+	b.mu.Lock() // Re-acquire before modifying cached state
+
 	if vi != nil {
 		slog.Debug("saving vector index", "chunks", len(vi.ChunkVecs))
 		if err := b.saveVecIndex(vi); err != nil {
 			return fmt.Errorf("save vec index: %w", err)
 		}
+		b.vecCache = vi
+		b.vecCacheAt = time.Now()
 	} else {
 		slog.Debug("vector index skipped (no embedder available)")
 	}
@@ -300,26 +353,80 @@ func (b *FileBrain) rebuildFullIndex() error {
 	return nil
 }
 
-// buildVecIndex selects the embedding backend and builds the vector index.
-func (b *FileBrain) buildVecIndex(idx *FullIndex) *VecIndex {
+// snapshotChunkTexts pre-extracts all chunk text strings while the file cache
+// is populated and the lock is held. The result is passed to buildVecIndexUnlocked
+// so that no file I/O is needed after the write lock is released.
+func (b *FileBrain) snapshotChunkTexts(idx *FullIndex) map[string]string {
+	texts := make(map[string]string, len(idx.Chunks))
+	for chunkKey, ce := range idx.Chunks {
+		bf, err := b.loadCached(ce.DocPath)
+		if err != nil {
+			continue
+		}
+		content := strings.TrimSpace(bf.Content)
+		chunkText := safeSubstring(content, ce.Offset, ce.Length)
+		if chunkText == "" {
+			continue
+		}
+		doc := idx.Documents[ce.DocPath]
+		prefix := ""
+		if len(doc.Tags) > 0 {
+			prefix = "Tags: " + strings.Join(doc.Tags, ", ") + ". "
+		}
+		texts[chunkKey] = prefix + chunkText
+	}
+	return texts
+}
+
+// snapshotChunkTextsForPaths is like snapshotChunkTexts but only extracts
+// chunk texts for chunks whose DocPath is in the provided paths set.
+func (b *FileBrain) snapshotChunkTextsForPaths(idx *FullIndex, paths []string) map[string]string {
+	pathSet := make(map[string]bool, len(paths))
+	for _, p := range paths {
+		pathSet[p] = true
+	}
+	texts := make(map[string]string)
+	for chunkKey, ce := range idx.Chunks {
+		if !pathSet[ce.DocPath] {
+			continue
+		}
+		bf, err := b.loadCached(ce.DocPath)
+		if err != nil {
+			continue
+		}
+		content := strings.TrimSpace(bf.Content)
+		chunkText := safeSubstring(content, ce.Offset, ce.Length)
+		if chunkText == "" {
+			continue
+		}
+		doc := idx.Documents[ce.DocPath]
+		prefix := ""
+		if len(doc.Tags) > 0 {
+			prefix = "Tags: " + strings.Join(doc.Tags, ", ") + ". "
+		}
+		texts[chunkKey] = prefix + chunkText
+	}
+	return texts
+}
+
+// buildVecIndexUnlocked builds the vector index without holding the write lock.
+// chunkTexts is a pre-loaded snapshot so no brain file I/O is needed.
+func (b *FileBrain) buildVecIndexUnlocked(ctx context.Context, idx *FullIndex, chunkTexts map[string]string) *VecIndex {
 	switch b.embed.Provider {
 	case EmbedOllama:
-		return b.tryOllamaEmbed(idx)
-
+		return b.tryOllamaEmbedUnlocked(ctx, idx, chunkTexts)
 	case EmbedLSI:
 		return buildVecIndexLSI(idx)
-
-	default: // Auto: try Ollama first, fall back to LSI.
-		if vi := b.tryOllamaEmbed(idx); vi != nil {
+	default: // Auto: try Ollama, fall back to LSI.
+		if vi := b.tryOllamaEmbedUnlocked(ctx, idx, chunkTexts); vi != nil {
 			return vi
 		}
 		return buildVecIndexLSI(idx)
 	}
 }
 
-// tryOllamaEmbed attempts to build the vector index using Ollama.
-// Loads the existing vector index for incremental embedding.
-func (b *FileBrain) tryOllamaEmbed(idx *FullIndex) *VecIndex {
+// tryOllamaEmbedUnlocked attempts Ollama embedding without holding the write lock.
+func (b *FileBrain) tryOllamaEmbedUnlocked(ctx context.Context, idx *FullIndex, chunkTexts map[string]string) *VecIndex {
 	embedder := NewOllamaEmbedder(OllamaEmbedConfig{
 		URL:   b.embed.OllamaURL,
 		Model: b.embed.OllamaModel,
@@ -329,11 +436,302 @@ func (b *FileBrain) tryOllamaEmbed(idx *FullIndex) *VecIndex {
 		slog.Debug("ollama embedder not available, skipping vector index")
 		return nil
 	}
-	slog.Debug("ollama embedder available, embedding chunks", "chunks", len(idx.Chunks))
 
-	// Load existing index for incremental rebuild.
+	// Load existing index for incremental rebuild (brief read lock).
+	b.mu.RLock()
 	existing, _ := b.loadVecIndex()
-	return buildVecIndexOllama(b, idx, embedder, existing)
+	b.mu.RUnlock()
+
+	slog.Debug("ollama embedder available, embedding chunks", "chunks", len(chunkTexts))
+	return buildVecIndexOllama(ctx, idx, embedder, existing, chunkTexts)
+}
+
+
+// rebuildIndexIncremental is the internal implementation of RebuildIndexIncremental.
+func (b *FileBrain) rebuildIndexIncremental() error {
+	b.fileCache = make(map[string]*BrainFile)
+	defer func() { b.fileCache = nil }()
+
+	files, err := b.listAll()
+	if err != nil {
+		return fmt.Errorf("list brain files: %w", err)
+	}
+
+	manifest := b.loadManifest()
+
+	// Diff: classify each file as unchanged, dirty (changed/new), or deleted.
+	currentSet := make(map[string]bool, len(files))
+	newManifest := &IndexManifest{Files: make(map[string]FileState, len(files))}
+	var dirty []string
+
+	for _, f := range files {
+		currentSet[f] = true
+		absPath := filepath.Join(b.root, f)
+		hash, err := fileContentHash(absPath)
+		if err != nil {
+			continue
+		}
+		if prev, ok := manifest.Files[f]; ok && prev.Hash == hash {
+			newManifest.Files[f] = prev // unchanged — carry forward
+			continue
+		}
+		dirty = append(dirty, f)
+		newManifest.Files[f] = FileState{Hash: hash} // chunks updated during rebuild
+	}
+
+	var deleted []string
+	for f := range manifest.Files {
+		if !currentSet[f] {
+			deleted = append(deleted, f)
+		}
+	}
+
+	totalChanged := len(dirty) + len(deleted)
+
+	// Fall back to full rebuild when manifest is empty (first run) or more than
+	// half the corpus changed (full rebuild is cheaper than delta bookkeeping).
+	if len(manifest.Files) == 0 || totalChanged > len(files)/2 {
+		slog.Info("incremental index: falling back to full rebuild",
+			"changed", totalChanged, "total", len(files))
+		return b.rebuildIndex()
+	}
+
+	if totalChanged == 0 {
+		slog.Info("incremental index: nothing changed")
+		return nil
+	}
+
+	slog.Info("incremental index: processing changed files",
+		"dirty", len(dirty), "deleted", len(deleted), "unchanged", len(files)-len(dirty))
+
+	// Tag index is cheap — always rebuild it.
+	if err := b.rebuildTagIndex(); err != nil {
+		return err
+	}
+
+	// Incremental BM25 update.
+	if err := b.updateFullIndexIncremental(dirty, deleted, newManifest); err != nil {
+		return err
+	}
+
+	// Incremental vector update — embed only dirty chunks, merge with existing.
+	idx := b.indexCache // warm from updateFullIndexIncremental
+	if idx == nil {
+		idx, err = b.loadFullIndex()
+		if err != nil {
+			return err
+		}
+	}
+	dirtyChunkTexts := b.snapshotChunkTextsForPaths(idx, dirty)
+
+	b.mu.RLock()
+	existingVI, _ := b.loadVecIndex()
+	b.mu.RUnlock()
+
+	removePaths := make(map[string]bool, len(dirty)+len(deleted))
+	for _, p := range dirty {
+		removePaths[p] = true
+	}
+	for _, p := range deleted {
+		removePaths[p] = true
+	}
+
+	b.mu.Unlock()
+	ctx, cancel := context.WithTimeout(context.Background(), VecIndexBuildTimeout)
+	deltaVI := b.buildVecIndexUnlocked(ctx, idx, dirtyChunkTexts)
+	cancel()
+	b.mu.Lock()
+
+	var vi *VecIndex
+	if deltaVI != nil && existingVI != nil {
+		vi = mergeVecIndex(existingVI, deltaVI, removePaths)
+	} else if deltaVI != nil {
+		vi = deltaVI
+	} else if existingVI != nil {
+		// No new embeddings (e.g. provider unavailable) — clean up deleted/dirty vectors.
+		vi = mergeVecIndex(existingVI, &VecIndex{
+			Dims:      existingVI.Dims,
+			Provider:  existingVI.Provider,
+			ChunkVecs: make(map[string][]float32),
+			Hashes:    make(map[string]string),
+		}, removePaths)
+	}
+
+	if vi != nil {
+		if err := b.saveVecIndex(vi); err != nil {
+			return fmt.Errorf("save vec index: %w", err)
+		}
+		b.vecCache = vi
+		b.vecCacheAt = time.Now()
+	}
+
+	return b.saveManifest(newManifest)
+}
+
+// updateFullIndexIncremental applies a delta update to the existing BM25 full index.
+// It removes all postings/entries for dirty and deleted paths, then re-indexes dirty files.
+func (b *FileBrain) updateFullIndexIncremental(dirty, deleted []string, newManifest *IndexManifest) error {
+	existing, err := b.loadFullIndex()
+	if err != nil {
+		// No existing index — rebuild from scratch.
+		slog.Debug("incremental BM25: no existing index, running full rebuild")
+		return b.rebuildFullIndex()
+	}
+
+	toRemove := make(map[string]bool, len(dirty)+len(deleted))
+	for _, p := range dirty {
+		toRemove[p] = true
+	}
+	for _, p := range deleted {
+		toRemove[p] = true
+	}
+
+	// Remove postings for dirty/deleted paths.
+	for term, postings := range existing.InvertedIndex {
+		filtered := postings[:0]
+		for _, p := range postings {
+			if !toRemove[p.Path] {
+				filtered = append(filtered, p)
+			}
+		}
+		if len(filtered) == 0 {
+			delete(existing.InvertedIndex, term)
+		} else {
+			existing.InvertedIndex[term] = filtered
+		}
+	}
+
+	// Remove document and chunk entries.
+	for path := range toRemove {
+		doc, ok := existing.Documents[path]
+		if !ok {
+			continue
+		}
+		for ci := 0; ci < doc.ChunkCount; ci++ {
+			delete(existing.Chunks, fmt.Sprintf("%s#%d", path, ci))
+		}
+		existing.TotalChunks -= doc.ChunkCount
+		existing.TotalDocs--
+		delete(existing.Documents, path)
+	}
+
+	// Re-index each dirty file.
+	for _, f := range dirty {
+		bf, err := b.loadCached(f)
+		if err != nil {
+			continue
+		}
+
+		content := strings.TrimSpace(bf.Content)
+		contentTokens := tokenizeAndStem(content)
+		docWordCount := len(contentTokens)
+
+		chunks := chunkContent(content, ChunkTargetWords)
+		if len(chunks) == 0 {
+			chunks = []Chunk{{Text: content, Offset: 0, Length: len(content), WordCount: docWordCount}}
+		}
+
+		existing.Documents[f] = DocEntry{
+			Path:        f,
+			WordCount:   docWordCount,
+			Tags:        bf.Tags,
+			Updated:     bf.Updated.Time.Format(DateFormat),
+			AccessCount: bf.AccessCount,
+			ChunkCount:  len(chunks),
+			Confidence:  bf.Confidence,
+		}
+		existing.TotalDocs++
+
+		for ci, ch := range chunks {
+			chunkKey := fmt.Sprintf("%s#%d", f, ci)
+			chunkTokens := tokenizeAndStem(ch.Text)
+			chunkWordCount := len(chunkTokens)
+
+			existing.Chunks[chunkKey] = ChunkEntry{
+				DocPath:   f,
+				ChunkID:   ci,
+				WordCount: chunkWordCount,
+				Offset:    ch.Offset,
+				Length:    ch.Length,
+			}
+			existing.TotalChunks++
+
+			freq := make(map[string]int)
+			for _, t := range chunkTokens {
+				freq[t]++
+			}
+			for term, count := range freq {
+				existing.InvertedIndex[term] = append(existing.InvertedIndex[term], Posting{
+					Path:      f,
+					Frequency: count,
+					Field:     "content",
+					ChunkKey:  chunkKey,
+				})
+			}
+		}
+
+		// Tag postings.
+		tagFreq := make(map[string]int)
+		for _, tag := range bf.Tags {
+			for _, t := range tokenizeAndStem(tag) {
+				tagFreq[t]++
+			}
+		}
+		for term, count := range tagFreq {
+			existing.InvertedIndex[term] = append(existing.InvertedIndex[term], Posting{
+				Path:      f,
+				Frequency: count,
+				Field:     "tag",
+			})
+		}
+
+		// Path postings.
+		pathSegments := strings.Split(strings.TrimSuffix(f, ".md"), string(filepath.Separator))
+		pathFreq := make(map[string]int)
+		for _, seg := range pathSegments {
+			for _, t := range tokenizeAndStem(seg) {
+				pathFreq[t]++
+			}
+		}
+		for term, count := range pathFreq {
+			existing.InvertedIndex[term] = append(existing.InvertedIndex[term], Posting{
+				Path:      f,
+				Frequency: count,
+				Field:     "path",
+			})
+		}
+
+		// Update manifest chunk count.
+		if fs, ok := newManifest.Files[f]; ok {
+			fs.Chunks = len(chunks)
+			newManifest.Files[f] = fs
+		}
+	}
+
+	// Recompute averages from updated maps.
+	var totalDocWords, totalChunkWords int
+	for _, doc := range existing.Documents {
+		totalDocWords += doc.WordCount
+	}
+	for _, chunk := range existing.Chunks {
+		totalChunkWords += chunk.WordCount
+	}
+	if existing.TotalDocs > 0 {
+		existing.AvgDocLength = float64(totalDocWords) / float64(existing.TotalDocs)
+	}
+	if existing.TotalChunks > 0 {
+		existing.AvgChunkLength = float64(totalChunkWords) / float64(existing.TotalChunks)
+	}
+
+	slog.Debug("incremental BM25 update complete",
+		"docs", existing.TotalDocs, "chunks", existing.TotalChunks)
+
+	if err := b.saveFullIndex(existing); err != nil {
+		return err
+	}
+	b.indexCache = existing
+	b.indexCacheAt = time.Now()
+	return nil
 }
 
 // LoadFullIndex reads the index_full.json file (public, read-locked).

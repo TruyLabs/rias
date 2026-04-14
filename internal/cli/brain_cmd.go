@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"encoding/csv"
 	"fmt"
 	"os"
@@ -10,8 +11,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/norenis/kai/internal/auth"
 	"github.com/norenis/kai/internal/brain"
 	"github.com/norenis/kai/internal/config"
+	"github.com/norenis/kai/internal/provider"
 	"github.com/spf13/cobra"
 	"github.com/xuri/excelize/v2"
 )
@@ -52,6 +55,8 @@ func newBrainCmd() *cobra.Command {
 	cmd.AddCommand(newBrainEditCmd())
 	cmd.AddCommand(newBrainImportCmd())
 	cmd.AddCommand(newBrainReorganizeCmd())
+	cmd.AddCommand(newBrainMigrateCmd())
+	cmd.AddCommand(newBrainDecayCmd())
 	cmd.AddCommand(newSyncCmd())
 
 	return cmd
@@ -454,6 +459,201 @@ func printReorgPlan(plan *brain.ReorgPlan, applied bool) {
 		fmt.Println("Run with --apply to execute.")
 	} else {
 		fmt.Printf("Removed files have been moved to %s/.trash/ and can be recovered if needed.\n", getBrainPath())
+	}
+}
+
+func newBrainMigrateCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "migrate",
+		Short: "Move brain files from invalid categories into valid ones",
+		Long: `Finds brain files whose root directory is not one of the allowed categories
+(` + strings.Join(brain.DefaultCategories, ", ") + `) and proposes moving them to
+the best-matching valid category based on content + filename analysis.
+
+Files sitting directly in the brain root (no subdirectory) are also included.
+Confidence is shown for each suggestion; low-confidence items are flagged with (?).
+Use --llm to let the configured LLM provider resolve low-confidence items.
+
+By default runs in dry-run mode. Use --apply to execute.`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			apply, _ := cmd.Flags().GetBool("apply")
+			useLLM, _ := cmd.Flags().GetBool("llm")
+
+			opts := brain.DefaultMigrateOptions()
+			opts.DryRun = !apply
+
+			b := brain.New(getBrainPath())
+			plan, err := b.Migrate(opts)
+			if err != nil {
+				return fmt.Errorf("migrate: %w", err)
+			}
+
+			if len(plan.Actions) == 0 {
+				fmt.Println("All brain files are already in valid categories.")
+				return nil
+			}
+
+			// LLM fallback: re-score low-confidence items using the provider.
+			if useLLM {
+				if err := migrateLLMFallback(plan, opts.LowConfidenceThreshold); err != nil {
+					fmt.Printf("warning: LLM fallback failed (%v) — using keyword scores\n\n", err)
+				}
+			}
+
+			lowCount := 0
+			for _, a := range plan.Actions {
+				verb := "MOVE"
+				if a.Type == brain.ActionConsolidate {
+					verb = "MERGE"
+				}
+				conf := fmt.Sprintf("%.0f%%", a.Similarity*100)
+				flag := ""
+				if a.Similarity < opts.LowConfidenceThreshold {
+					flag = " (?)"
+					lowCount++
+				}
+				fmt.Printf("  %s %s → %s [%s]%s\n", verb, a.SourcePaths[0], a.TargetPath, conf, flag)
+				fmt.Printf("       %s\n\n", a.Reason)
+			}
+
+			if !apply {
+				if lowCount > 0 {
+					fmt.Printf("  %d low-confidence suggestion(s) marked with (?). Use --llm to resolve with AI.\n\n", lowCount)
+				}
+				fmt.Printf("%d file(s) to migrate. Run with --apply to execute.\n", len(plan.Actions))
+				fmt.Printf("Files are backed up to %s/.trash/ before removal.\n", getBrainPath())
+			} else {
+				fmt.Printf("Migrated %d file(s).\n", len(plan.Actions))
+			}
+			return nil
+		},
+	}
+	cmd.Flags().Bool("apply", false, "Execute the migration (default: dry-run)")
+	cmd.Flags().Bool("llm", false, "Use configured LLM to resolve low-confidence suggestions")
+	return cmd
+}
+
+// migrateLLMFallback asks the configured LLM provider to classify any plan
+// actions whose confidence is below threshold and updates their TargetPath.
+func migrateLLMFallback(plan *brain.ReorgPlan, threshold float64) error {
+	cfg, err := loadConfig()
+	if err != nil {
+		return fmt.Errorf("load config: %w", err)
+	}
+
+	prov, err := getProvider(cfg)
+	if err != nil {
+		return err
+	}
+
+	cats := strings.Join(brain.DefaultCategories, ", ")
+	b := brain.New(getBrainPath())
+
+	for i, action := range plan.Actions {
+		if action.Similarity >= threshold {
+			continue
+		}
+
+		bf, err := b.Load(action.SourcePaths[0])
+		if err != nil {
+			continue
+		}
+
+		content := strings.TrimSpace(bf.Content)
+		if len(content) > 500 {
+			content = content[:500] + "..."
+		}
+
+		prompt := fmt.Sprintf(
+			"You are categorizing a personal knowledge file.\n\nFile path: %s\nTags: %s\n\nContent:\n%s\n\nWhich category best fits this file? Choose exactly one from: %s\n\nReply with only the category name.",
+			action.SourcePaths[0], strings.Join(bf.Tags, ", "), content, cats,
+		)
+
+		resp, err := prov.Chat(context.Background(), "", []provider.Message{{Role: "user", Content: prompt}})
+		if err != nil || resp == nil {
+			continue
+		}
+
+		suggested := strings.ToLower(strings.TrimSpace(resp.Content))
+		if !brain.ValidCategory(suggested) {
+			continue
+		}
+
+		// Update target path and mark as LLM-verified.
+		_, filename := filepath.Split(action.TargetPath)
+		plan.Actions[i].TargetPath = filepath.Join(suggested, filename)
+		plan.Actions[i].Similarity = 1.0
+		plan.Actions[i].Reason += " [LLM: " + suggested + "]"
+	}
+	return nil
+}
+
+func newBrainDecayCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "decay",
+		Short: "Lower confidence of stale brain files",
+		Long: `Reduces confidence for brain files that haven't been updated in a while:
+  high → medium after 180 days without update
+  medium → low after 365 days without update
+
+By default runs in dry-run mode. Use --apply to write changes.`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			apply, _ := cmd.Flags().GetBool("apply")
+			b := brain.New(getBrainPath())
+			results, err := b.Decay(!apply)
+			if err != nil {
+				return fmt.Errorf("decay: %w", err)
+			}
+			if len(results) == 0 {
+				fmt.Println("No stale brain files found.")
+				return nil
+			}
+			for _, r := range results {
+				fmt.Printf("  %s → %s (%s, %d days since update)\n", r.OldConf, r.NewConf, r.Path, r.DaysSince)
+			}
+			if !apply {
+				fmt.Printf("\n%d file(s) eligible for decay. Run with --apply to execute.\n", len(results))
+			} else {
+				fmt.Printf("\nDecayed confidence on %d file(s).\n", len(results))
+			}
+			return nil
+		},
+	}
+	cmd.Flags().Bool("apply", false, "Apply decay (default: dry-run)")
+	return cmd
+}
+
+// getProvider builds a provider from cfg using the same logic as buildRouter,
+// but without constructing the brain, retriever, or session manager.
+func getProvider(cfg *config.Config) (provider.Provider, error) {
+	provCfg, ok := cfg.Providers[cfg.Provider]
+	if !ok {
+		return nil, fmt.Errorf("provider %q not found in config", cfg.Provider)
+	}
+	apiKey := provCfg.APIKey
+	if apiKey == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return nil, fmt.Errorf("cannot determine home directory: %w", err)
+		}
+		ks := auth.NewKeystore(filepath.Join(home, credentialsDir, credentialsFile))
+		mgr := auth.NewManager(ks)
+		key, err := mgr.GetCredential(cfg.Provider)
+		if err != nil {
+			return nil, fmt.Errorf("no API key for %s — run: kai auth set-key --provider %s", cfg.Provider, cfg.Provider)
+		}
+		apiKey = key
+	}
+	timeout := time.Duration(provCfg.TimeoutSec) * time.Second
+	switch cfg.Provider {
+	case "claude":
+		return provider.NewClaude(apiKey, provCfg.Model, provCfg.BaseURL, timeout), nil
+	case "openai":
+		return provider.NewOpenAI(apiKey, provCfg.Model, provCfg.BaseURL, timeout), nil
+	case "gemini":
+		return provider.NewGemini(apiKey, provCfg.Model, provCfg.BaseURL, timeout), nil
+	default:
+		return nil, fmt.Errorf("unsupported provider: %s", cfg.Provider)
 	}
 }
 

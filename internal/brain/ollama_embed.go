@@ -45,10 +45,15 @@ func NewOllamaEmbedder(cfg OllamaEmbedConfig) *OllamaEmbedder {
 	}
 }
 
+// EmbedBatchSize is the number of texts sent per Ollama /api/embed request.
+// Batching reduces HTTP round-trips from O(chunks) to O(chunks/batch).
+const EmbedBatchSize = 20
+
 // ollamaEmbedRequest is the request body for /api/embed.
+// Input accepts a single string or an array; we always send an array for batching.
 type ollamaEmbedRequest struct {
-	Model string `json:"model"`
-	Input string `json:"input"`
+	Model string   `json:"model"`
+	Input []string `json:"input"`
 }
 
 // ollamaEmbedResponse is the response from /api/embed.
@@ -58,9 +63,18 @@ type ollamaEmbedResponse struct {
 
 // Embed generates an embedding for the given text.
 func (e *OllamaEmbedder) Embed(text string) ([]float32, error) {
+	vecs, err := e.EmbedBatch([]string{text})
+	if err != nil {
+		return nil, err
+	}
+	return vecs[0], nil
+}
+
+// EmbedBatch generates embeddings for multiple texts in a single HTTP request.
+func (e *OllamaEmbedder) EmbedBatch(texts []string) ([][]float32, error) {
 	reqBody := ollamaEmbedRequest{
 		Model: e.model,
-		Input: text,
+		Input: texts,
 	}
 
 	data, err := json.Marshal(reqBody)
@@ -84,18 +98,22 @@ func (e *OllamaEmbedder) Embed(text string) ([]float32, error) {
 		return nil, fmt.Errorf("decode embed response: %w", err)
 	}
 
-	if len(embedResp.Embeddings) == 0 {
-		return nil, fmt.Errorf("ollama returned no embeddings")
+	if len(embedResp.Embeddings) != len(texts) {
+		return nil, fmt.Errorf("ollama returned %d embeddings for %d texts", len(embedResp.Embeddings), len(texts))
 	}
 
-	vec64 := embedResp.Embeddings[0]
-	vec := make([]float32, len(vec64))
-	for i, v := range vec64 {
-		vec[i] = float32(v)
+	vecs := make([][]float32, len(embedResp.Embeddings))
+	for i, vec64 := range embedResp.Embeddings {
+		vec := make([]float32, len(vec64))
+		for j, v := range vec64 {
+			vec[j] = float32(v)
+		}
+		vecs[i] = vec
+		if e.dims == 0 {
+			e.dims = len(vec)
+		}
 	}
-
-	e.dims = len(vec)
-	return vec, nil
+	return vecs, nil
 }
 
 // Dims returns the embedding dimensionality (known after first Embed call).

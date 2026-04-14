@@ -9,10 +9,12 @@ import (
 )
 
 func newReindexCmd() *cobra.Command {
-	return &cobra.Command{
+	var full bool
+
+	cmd := &cobra.Command{
 		Use:   "reindex",
 		Short: "Rebuild the BM25 and vector search indexes",
-		Long:  "Scan all brain files and rebuild the full-text BM25 index and vector embeddings (for hybrid search). This is normally done automatically after file writes, but can be manually triggered if needed.",
+		Long:  "Scan brain files and rebuild the full-text BM25 index and vector embeddings (for hybrid search). By default only changed files are re-indexed (incremental). Use --full to force a complete rebuild from scratch.",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, err := loadConfig()
 			if err != nil {
@@ -30,7 +32,12 @@ func newReindexCmd() *cobra.Command {
 			applyEmbedConfig(b, cfg)
 
 			fmt.Printf("Rebuilding indexes for brain at: %s\n", brainPath)
-			if err := b.RebuildIndex(); err != nil {
+			if full {
+				err = b.RebuildIndex()
+			} else {
+				err = b.RebuildIndexIncremental()
+			}
+			if err != nil {
 				return fmt.Errorf("rebuild index failed: %w", err)
 			}
 
@@ -78,4 +85,7 @@ func newReindexCmd() *cobra.Command {
 			return nil
 		},
 	}
+
+	cmd.Flags().BoolVar(&full, "full", false, "Force a complete rebuild, ignoring incremental state")
+	return cmd
 }

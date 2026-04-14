@@ -11,15 +11,17 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"regexp"
 	"sort"
 	"strings"
 	"sync"
 	"time"
 
+	"context"
+
 	kai "github.com/norenis/kai"
 	"github.com/norenis/kai/internal/brain"
 	"github.com/norenis/kai/internal/config"
+	"github.com/norenis/kai/internal/module"
 	"github.com/norenis/kai/internal/router"
 	bsync "github.com/norenis/kai/internal/sync"
 	"github.com/xuri/excelize/v2"
@@ -134,6 +136,7 @@ func (s *Server) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/", auth(s.handleIndex))
 	mux.HandleFunc("/api/overview", auth(s.handleOverview))
 	mux.HandleFunc("/api/tasks", auth(s.handleTasks))
+	mux.HandleFunc("/api/tasks/add", auth(s.handleTasksAdd))
 	mux.HandleFunc("/api/activity", auth(s.handleActivity))
 	mux.HandleFunc("/api/search", auth(s.handleSearch))
 	mux.HandleFunc("/api/info", auth(s.handleInfo))
@@ -141,6 +144,8 @@ func (s *Server) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/files", auth(s.handleFiles))
 	mux.HandleFunc("/api/file", auth(s.handleFileContent))
 	mux.HandleFunc("/api/reorg", auth(s.handleReorg))
+	mux.HandleFunc("/api/migrate", auth(s.handleMigrate))
+	mux.HandleFunc("/api/decay", auth(s.handleDecay))
 	mux.HandleFunc("/api/status", auth(s.handleStatus))
 	mux.HandleFunc("/api/tools", auth(s.handleTools))
 	mux.HandleFunc("/api/tools/execute", auth(s.handleToolExecute))
@@ -152,6 +157,8 @@ func (s *Server) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/sync/status", auth(s.handleSyncStatus))
 	mux.HandleFunc("/api/vectors", auth(s.handleVectors))
 	mux.HandleFunc("/api/vectors/build", auth(s.handleVectorsBuild))
+	mux.HandleFunc("/api/plugins", auth(s.handlePlugins))
+	mux.HandleFunc("/api/plugins/run", auth(s.handlePluginRun))
 }
 
 // withAuth wraps a handler with PIN authentication if configured.
@@ -269,7 +276,7 @@ func (s *Server) handleOverview(w http.ResponseWriter, r *http.Request) {
 
 	resp := response{Categories: make(map[string]int)}
 
-	idx, err := s.brain.LoadFullIndex()
+	idx, err := s.brain.LoadFullIndexCached()
 	if err != nil {
 		// Fall back to basic file list.
 		files, _ := s.brain.ListAll()
@@ -304,7 +311,7 @@ func (s *Server) handleOverview(w http.ResponseWriter, r *http.Request) {
 	resp.UniqueTags = len(tags)
 
 	// Load vector index info.
-	if vi, err := s.brain.LoadVecIndex(); err == nil && vi != nil {
+	if vi, err := s.brain.LoadVecIndexCached(); err == nil && vi != nil {
 		resp.VecProvider = vi.Provider
 		resp.VecDims = vi.Dims
 		resp.VecChunks = len(vi.ChunkVecs)
@@ -317,15 +324,23 @@ func (s *Server) handleOverview(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleTasks(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodPost {
+		s.handleTasksToggle(w, r)
+		return
+	}
+	s.handleTasksGet(w, r)
+}
+
+func (s *Server) handleTasksGet(w http.ResponseWriter, r *http.Request) {
 	type response struct {
-		Items []taskItem `json:"items"`
+		Items []brain.TaskItem `json:"items"`
 	}
 
 	// Find today's tasks file or the most recent one.
 	tasksDir := filepath.Join(s.brainPath, "tasks")
 	files, _ := filepath.Glob(filepath.Join(tasksDir, "*.md"))
 	if len(files) == 0 {
-		writeJSON(w, response{Items: []taskItem{}})
+		writeJSON(w, response{Items: []brain.TaskItem{}})
 		return
 	}
 
@@ -334,47 +349,80 @@ func (s *Server) handleTasks(w http.ResponseWriter, r *http.Request) {
 
 	bf, err := s.brain.Load("tasks/" + filepath.Base(files[0]))
 	if err != nil {
-		writeJSON(w, response{Items: []taskItem{}})
+		writeJSON(w, response{Items: []brain.TaskItem{}})
 		return
 	}
 
-	items := parseTasks(bf.Content)
-	writeJSON(w, response{Items: items})
+	writeJSON(w, response{Items: brain.ParseTasks(bf.Content)})
 }
 
-var taskLineRe = regexp.MustCompile(`^- \[([ x~])\] (.+)$`)
-var priorityRe = regexp.MustCompile(`\x{1f534}\s*high|\x{1f7e1}\s*medium|\x{1f7e2}\s*low`)
-
-func parseTasks(content string) []taskItem {
-	var items []taskItem
-	for _, line := range strings.Split(content, "\n") {
-		line = strings.TrimSpace(line)
-		m := taskLineRe.FindStringSubmatch(line)
-		if m == nil {
-			continue
-		}
-		done := m[1] == "x"
-		text := m[2]
-
-		// Extract priority from emoji markers.
-		var priority string
-		if strings.Contains(text, "high") {
-			priority = "high"
-		} else if strings.Contains(text, "medium") {
-			priority = "medium"
-		} else if strings.Contains(text, "low") {
-			priority = "low"
-		}
-
-		items = append(items, taskItem{Text: text, Done: done, Priority: priority})
+func (s *Server) handleTasksToggle(w http.ResponseWriter, r *http.Request) {
+	type toggleReq struct {
+		Index int  `json:"index"`
+		Done  bool `json:"done"`
 	}
-	return items
+	type response struct {
+		Items []brain.TaskItem `json:"items"`
+	}
+
+	var req toggleReq
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid request", http.StatusBadRequest)
+		return
+	}
+
+	path := brain.TaskFilePath(time.Now())
+	bf, err := s.brain.Load(path)
+	if err != nil {
+		http.Error(w, "no tasks for today", http.StatusNotFound)
+		return
+	}
+
+	newContent, err := brain.ToggleTask(bf.Content, req.Index, req.Done)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	bf.Content = newContent
+	bf.Updated = brain.DateOnly{Time: time.Now()}
+	if err := s.brain.Save(bf); err != nil {
+		http.Error(w, "failed to save tasks", http.StatusInternalServerError)
+		return
+	}
+
+	writeJSON(w, response{Items: brain.ParseTasks(bf.Content)})
 }
 
-type taskItem struct {
-	Text     string `json:"text"`
-	Done     bool   `json:"done"`
-	Priority string `json:"priority,omitempty"`
+func (s *Server) handleTasksAdd(w http.ResponseWriter, r *http.Request) {
+	type addReq struct {
+		Text     string `json:"text"`
+		Priority string `json:"priority"`
+	}
+	type response struct {
+		Items []brain.TaskItem `json:"items"`
+	}
+
+	var req addReq
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Text == "" {
+		http.Error(w, "invalid request: text is required", http.StatusBadRequest)
+		return
+	}
+
+	path := brain.TaskFilePath(time.Now())
+	bf, err := s.brain.Load(path)
+	if err != nil {
+		bf = brain.NewTaskFile(time.Now())
+	}
+
+	bf.Content = brain.AppendTask(bf.Content, req.Text, req.Priority)
+	bf.Updated = brain.DateOnly{Time: time.Now()}
+	if err := s.brain.Save(bf); err != nil {
+		http.Error(w, "failed to save tasks", http.StatusInternalServerError)
+		return
+	}
+
+	writeJSON(w, response{Items: brain.ParseTasks(bf.Content)})
 }
 
 func (s *Server) handleActivity(w http.ResponseWriter, r *http.Request) {
@@ -388,7 +436,7 @@ func (s *Server) handleActivity(w http.ResponseWriter, r *http.Request) {
 		Recent []activityEntry `json:"recent"`
 	}
 
-	idx, err := s.brain.LoadFullIndex()
+	idx, err := s.brain.LoadFullIndexCached()
 	if err != nil {
 		writeJSON(w, response{Recent: []activityEntry{}})
 		return
@@ -487,19 +535,21 @@ func extractSnippet(content string, offset, length, maxLen int) string {
 
 func (s *Server) handleInfo(w http.ResponseWriter, r *http.Request) {
 	type response struct {
-		AgentName string `json:"agent_name"`
-		UserName  string `json:"user_name"`
-		Version   string `json:"version"`
-		Commit    string `json:"commit"`
-		BuildDate string `json:"build_date"`
+		AgentName  string `json:"agent_name"`
+		UserName   string `json:"user_name"`
+		Version    string `json:"version"`
+		Commit     string `json:"commit"`
+		BuildDate  string `json:"build_date"`
+		ListenAddr string `json:"listen_addr"`
 	}
 
 	writeJSON(w, response{
-		AgentName: s.cfg.AgentName(),
-		UserName:  s.cfg.UserName(),
-		Version:   kai.Version,
-		Commit:    kai.Commit,
-		BuildDate: kai.BuildDate,
+		AgentName:  s.cfg.AgentName(),
+		UserName:   s.cfg.UserName(),
+		Version:    kai.Version,
+		Commit:     kai.Commit,
+		BuildDate:  kai.BuildDate,
+		ListenAddr: s.cfg.Server.ListenAddr,
 	})
 }
 
@@ -512,7 +562,7 @@ func (s *Server) handleTags(w http.ResponseWriter, r *http.Request) {
 		Tags []tagEntry `json:"tags"`
 	}
 
-	idx, err := s.brain.LoadFullIndex()
+	idx, err := s.brain.LoadFullIndexCached()
 	if err != nil {
 		writeJSON(w, response{Tags: []tagEntry{}})
 		return
@@ -552,40 +602,49 @@ func (s *Server) handleFiles(w http.ResponseWriter, r *http.Request) {
 		Files []fileEntry `json:"files"`
 	}
 
-	files, err := s.brain.ListAll()
-	if err != nil {
-		writeJSON(w, response{Files: []fileEntry{}})
-		return
-	}
+	// Fast path: use cached index (no per-file disk reads).
+	idx, _ := s.brain.LoadFullIndexCached()
 
-	idx, _ := s.brain.LoadFullIndex()
-
-	entries := make([]fileEntry, 0, len(files))
-	for _, f := range files {
-		cat := strings.SplitN(f, "/", 2)[0]
-		entry := fileEntry{Path: f, Category: cat}
-
-		if idx != nil {
-			if doc, ok := idx.Documents[f]; ok {
-				entry.Tags = doc.Tags
-				entry.WordCount = doc.WordCount
-				entry.AccessCount = doc.AccessCount
-				entry.Updated = doc.Updated
+	var entries []fileEntry
+	if idx != nil && len(idx.Documents) > 0 {
+		entries = make([]fileEntry, 0, len(idx.Documents))
+		for _, doc := range idx.Documents {
+			cat := strings.SplitN(doc.Path, "/", 2)[0]
+			tags := doc.Tags
+			if tags == nil {
+				tags = []string{}
 			}
+			entries = append(entries, fileEntry{
+				Path:        doc.Path,
+				Category:    cat,
+				Tags:        tags,
+				Confidence:  doc.Confidence,
+				WordCount:   doc.WordCount,
+				AccessCount: doc.AccessCount,
+				Updated:     doc.Updated,
+			})
 		}
-
-		bf, err := s.brain.Load(f)
-		if err == nil {
-			entry.Confidence = bf.Confidence
-			if entry.Tags == nil {
+	} else {
+		// Fallback: no index available, list files and load individually.
+		files, err := s.brain.ListAll()
+		if err != nil {
+			writeJSON(w, response{Files: []fileEntry{}})
+			return
+		}
+		entries = make([]fileEntry, 0, len(files))
+		for _, f := range files {
+			cat := strings.SplitN(f, "/", 2)[0]
+			entry := fileEntry{Path: f, Category: cat}
+			bf, err := s.brain.Load(f)
+			if err == nil {
 				entry.Tags = bf.Tags
+				entry.Confidence = bf.Confidence
 			}
+			if entry.Tags == nil {
+				entry.Tags = []string{}
+			}
+			entries = append(entries, entry)
 		}
-		if entry.Tags == nil {
-			entry.Tags = []string{}
-		}
-
-		entries = append(entries, entry)
 	}
 
 	sort.Slice(entries, func(i, j int) bool { return entries[i].Path < entries[j].Path })
@@ -739,6 +798,75 @@ func (s *Server) handleReorg(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, response{Actions: actions, Count: len(actions)})
 }
 
+func (s *Server) handleMigrate(w http.ResponseWriter, r *http.Request) {
+	apply := r.URL.Query().Get("apply") == "true"
+	if r.Method == "POST" {
+		var body struct {
+			Apply bool `json:"apply"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		apply = apply || body.Apply
+	}
+
+	type actionResult struct {
+		brain.ReorgAction
+		Confidence float64 `json:"confidence"`
+		LowConf    bool    `json:"low_confidence"`
+	}
+	type response struct {
+		Actions []actionResult `json:"actions"`
+		Count   int            `json:"count"`
+		Applied bool           `json:"applied"`
+	}
+
+	opts := brain.DefaultMigrateOptions()
+	opts.DryRun = !apply
+
+	plan, err := s.brain.Migrate(opts)
+	if err != nil || plan == nil {
+		writeJSON(w, response{Actions: []actionResult{}, Count: 0, Applied: apply})
+		return
+	}
+
+	var results []actionResult
+	for _, a := range plan.Actions {
+		results = append(results, actionResult{
+			ReorgAction: a,
+			Confidence:  a.Similarity,
+			LowConf:     a.Similarity < opts.LowConfidenceThreshold,
+		})
+	}
+	if results == nil {
+		results = []actionResult{}
+	}
+	writeJSON(w, response{Actions: results, Count: len(results), Applied: apply})
+}
+
+func (s *Server) handleDecay(w http.ResponseWriter, r *http.Request) {
+	apply := r.URL.Query().Get("apply") == "true"
+	if r.Method == "POST" {
+		var body struct {
+			Apply bool `json:"apply"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		apply = apply || body.Apply
+	}
+
+	results, err := s.brain.Decay(!apply)
+	if err != nil {
+		writeJSON(w, map[string]string{"error": err.Error()})
+		return
+	}
+	if results == nil {
+		results = []brain.DecayResult{}
+	}
+	writeJSON(w, map[string]interface{}{
+		"results": results,
+		"count":   len(results),
+		"applied": apply,
+	})
+}
+
 func (s *Server) handleTools(w http.ResponseWriter, r *http.Request) {
 	tools := s.getToolDefs()
 	writeJSON(w, map[string]interface{}{"tools": tools})
@@ -789,6 +917,12 @@ func (s *Server) getToolDefs() []ToolDef {
 		{Name: "brain_reorganize", Description: "Analyze brain for reorganization", Params: []ToolParam{
 			{Name: "mode", Type: "string", Required: false, Description: "all, dedup, recategorize, or consolidate"},
 			{Name: "apply", Type: "boolean", Required: false, Description: "Execute plan (default: false)"},
+		}},
+		{Name: "brain_migrate", Description: "Move brain files from invalid categories into valid ones", Params: []ToolParam{
+			{Name: "apply", Type: "boolean", Required: false, Description: "Execute migration (default: false = dry-run)"},
+		}},
+		{Name: "brain_decay", Description: "Lower confidence of stale brain files (high→medium after 180d, medium→low after 365d)", Params: []ToolParam{
+			{Name: "apply", Type: "boolean", Required: false, Description: "Apply decay (default: false = dry-run)"},
 		}},
 	}
 }
@@ -930,6 +1064,31 @@ func (s *Server) executeTool(toolName string, params map[string]string) (string,
 			return "No reorganization needed.", nil
 		}
 		data, _ := json.MarshalIndent(plan.Actions, "", "  ")
+		return string(data), nil
+
+	case "brain_migrate":
+		opts := brain.DefaultMigrateOptions()
+		opts.DryRun = params["apply"] != "true"
+		plan, err := s.brain.Migrate(opts)
+		if err != nil {
+			return "", err
+		}
+		if plan == nil || len(plan.Actions) == 0 {
+			return "All brain files are already in valid categories.", nil
+		}
+		data, _ := json.MarshalIndent(plan.Actions, "", "  ")
+		return string(data), nil
+
+	case "brain_decay":
+		apply := params["apply"] == "true"
+		results, err := s.brain.Decay(!apply)
+		if err != nil {
+			return "", err
+		}
+		if len(results) == 0 {
+			return "No stale brain files found.", nil
+		}
+		data, _ := json.MarshalIndent(results, "", "  ")
 		return string(data), nil
 
 	default:
@@ -1218,10 +1377,10 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		embedProvider = "auto"
 	}
 
-	vi, viErr := s.brain.LoadVecIndex()
+	vi, viErr := s.brain.LoadVecIndexCached()
 	if viErr != nil {
-		// No vector index yet — check what's configured
-		if embedProvider == "ollama" || embedProvider == "auto" {
+		// No vector index yet — report configured provider without network probing.
+		if embedProvider == "ollama" {
 			ollamaURL := s.cfg.Brain.Embeddings.Ollama.URL
 			if ollamaURL == "" {
 				ollamaURL = brain.DefaultOllamaURL
@@ -1230,27 +1389,17 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 			if model == "" {
 				model = brain.DefaultEmbedModel
 			}
-			embedder := brain.NewOllamaEmbedder(brain.OllamaEmbedConfig{
-				URL: ollamaURL, Model: model,
-			})
-			if embedder.Available() {
-				services = append(services, serviceStatus{
-					Name: "Embeddings", Status: "connected",
-					Value: "Ollama", Tooltip: model + " @ " + ollamaURL + " (index not built)",
-				})
-			} else if embedProvider == "auto" {
-				services = append(services, serviceStatus{
-					Name: "Embeddings", Status: "connected", Value: "LSI", Tooltip: "No vector index yet",
-				})
-			} else {
-				services = append(services, serviceStatus{
-					Name: "Embeddings", Status: "disconnected",
-					Value: "Ollama", Tooltip: model + " @ " + ollamaURL + " (unreachable)",
-				})
-			}
-		} else {
 			services = append(services, serviceStatus{
-				Name: "Embeddings", Status: "connected", Value: "LSI", Tooltip: "No vector index yet",
+				Name: "Embeddings", Status: "not_configured",
+				Value: "Ollama", Tooltip: model + " @ " + ollamaURL + " (index not built — run reindex)",
+			})
+		} else {
+			value := "LSI"
+			if embedProvider == "auto" {
+				value = "auto"
+			}
+			services = append(services, serviceStatus{
+				Name: "Embeddings", Status: "not_configured", Value: value, Tooltip: "No vector index yet — run reindex",
 			})
 		}
 	} else {
@@ -1380,4 +1529,89 @@ func importFileData(filename string, data []byte, category string, tags []string
 		Source:     "imported:" + filename,
 		Updated:    brain.DateOnly{Time: time.Now()},
 	}, nil
+}
+
+func (s *Server) handlePlugins(w http.ResponseWriter, r *http.Request) {
+	reg := module.Default()
+	available := reg.Available()
+	sort.Strings(available)
+
+	enabled := make(map[string]bool, len(s.cfg.Modules))
+	for _, mc := range s.cfg.Modules {
+		if mc.Enabled {
+			enabled[mc.Name] = true
+		}
+	}
+
+	type pluginEntry struct {
+		Name        string `json:"name"`
+		Description string `json:"description"`
+		Enabled     bool   `json:"enabled"`
+	}
+	entries := make([]pluginEntry, 0, len(available))
+	for _, name := range available {
+		entries = append(entries, pluginEntry{
+			Name:        name,
+			Description: reg.Description(name),
+			Enabled:     enabled[name],
+		})
+	}
+	writeJSON(w, map[string]interface{}{"plugins": entries})
+}
+
+func (s *Server) handlePluginRun(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req struct {
+		Name string `json:"name"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, map[string]string{"error": "bad request"})
+		return
+	}
+	if req.Name == "" {
+		writeJSON(w, map[string]string{"error": "name is required"})
+		return
+	}
+
+	reg := module.Default()
+
+	var modCfg map[string]interface{}
+	for _, mc := range s.cfg.Modules {
+		if mc.Name == req.Name {
+			modCfg = mc.Config
+			break
+		}
+	}
+
+	mod, err := reg.Build(req.Name, modCfg)
+	if err != nil {
+		writeJSON(w, map[string]interface{}{"error": err.Error()})
+		return
+	}
+
+	learnings, err := mod.Fetch(context.Background())
+	if err != nil {
+		writeJSON(w, map[string]interface{}{"error": fmt.Sprintf("fetch: %v", err)})
+		return
+	}
+
+	if len(learnings) == 0 {
+		writeJSON(w, map[string]interface{}{"name": req.Name, "imported": 0, "message": "nothing fetched"})
+		return
+	}
+
+	if err := s.brain.Learn(learnings); err != nil {
+		writeJSON(w, map[string]interface{}{"error": fmt.Sprintf("save: %v", err)})
+		return
+	}
+	if err := s.brain.RebuildTagIndex(); err != nil {
+		writeJSON(w, map[string]interface{}{"error": fmt.Sprintf("index: %v", err)})
+		return
+	}
+
+	writeJSON(w, map[string]interface{}{"name": req.Name, "imported": len(learnings)})
 }

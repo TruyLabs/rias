@@ -15,6 +15,7 @@ import (
 	"github.com/norenis/kai/internal/brain"
 	"github.com/norenis/kai/internal/config"
 	"github.com/norenis/kai/internal/dashboard"
+	"github.com/norenis/kai/internal/module"
 	"github.com/norenis/kai/internal/prompt"
 	"github.com/norenis/kai/internal/provider"
 	"github.com/norenis/kai/internal/router"
@@ -195,7 +196,7 @@ func (s *Server) registerTools() {
 			mcplib.WithDescription("Write or update a brain file directly. No LLM needed. Creates the file if it doesn't exist."),
 			mcplib.WithString("path",
 				mcplib.Required(),
-				mcplib.Description("Relative path within brain directory (e.g. 'opinions/testing.md')"),
+				mcplib.Description("Relative path within brain directory. Must start with an allowed category: "+strings.Join(brain.DefaultCategories, ", ")+". Example: 'opinions/testing.md'"),
 			),
 			mcplib.WithString("content",
 				mcplib.Required(),
@@ -241,7 +242,7 @@ func (s *Server) registerTools() {
 				mcplib.Description("Free-form teaching input (requires LLM provider). e.g. 'I prefer TDD for business logic'"),
 			),
 			mcplib.WithString("category",
-				mcplib.Description("Brain category: identity, opinions, style, decisions, or knowledge (direct mode, no LLM needed)"),
+				mcplib.Description("Brain category — must be one of: "+strings.Join(brain.DefaultCategories, ", ")+" (direct mode, no LLM needed)"),
 			),
 			mcplib.WithString("topic",
 				mcplib.Description("Topic slug for filename, e.g. 'testing-philosophy' (direct mode)"),
@@ -276,6 +277,50 @@ func (s *Server) registerTools() {
 			),
 		),
 		s.handleBrainReorganize,
+	)
+
+	s.mcp.AddTool(
+		mcplib.NewTool("module_list",
+			mcplib.WithDescription("List all available modules (plugins) and their enabled status."),
+		),
+		s.handleModuleList,
+	)
+
+	s.mcp.AddTool(
+		mcplib.NewTool("module_run",
+			mcplib.WithDescription("Run a module (plugin) to fetch external data into the brain. Pass a module name, or omit to run all enabled modules."),
+			mcplib.WithString("name",
+				mcplib.Description("Module name to run (e.g. 'github_prs'). Omit to run all enabled modules."),
+			),
+		),
+		s.handleModuleRun,
+	)
+
+	s.mcp.AddTool(
+		mcplib.NewTool("setup_commands",
+			mcplib.WithDescription("Get kai slash command files for Claude Code. Returns file names and contents as JSON. Write each file to ~/.claude/commands/kai/<name>.md to install the /kai:* slash commands."),
+		),
+		s.handleSetupCommands,
+	)
+
+	s.mcp.AddTool(
+		mcplib.NewTool("tasks",
+			mcplib.WithDescription("Manage today's task list. Actions: list (show tasks), add (create task), done/undone (toggle by index), rm (remove by index)."),
+			mcplib.WithString("action",
+				mcplib.Required(),
+				mcplib.Description("Action: list, add, done, undone, or rm"),
+			),
+			mcplib.WithString("text",
+				mcplib.Description("Task text — required for 'add'"),
+			),
+			mcplib.WithNumber("index",
+				mcplib.Description("Zero-based task index — required for done, undone, rm"),
+			),
+			mcplib.WithString("priority",
+				mcplib.Description("Priority: high, medium, or low — optional for 'add'"),
+			),
+		),
+		s.handleTasksTool,
 	)
 }
 
@@ -512,6 +557,14 @@ func (s *Server) handleBrainWrite(ctx context.Context, req mcplib.CallToolReques
 	if !strings.HasSuffix(path, ".md") {
 		path = path + ".md"
 	}
+	// Validate that the path starts with an allowed root category.
+	rootDir := strings.SplitN(path, "/", 2)[0]
+	if !brain.ValidCategory(rootDir) {
+		return mcplib.NewToolResultError(fmt.Sprintf(
+			"invalid category %q — must be one of: %s",
+			rootDir, strings.Join(brain.DefaultCategories, ", "),
+		)), nil
+	}
 
 	content, err := req.RequireString("content")
 	if err != nil {
@@ -640,7 +693,7 @@ func (s *Server) handleTeach(ctx context.Context, req mcplib.CallToolRequest) (*
 		{Role: "user", Content: "I want to teach you about myself: " + input},
 	}
 
-	teachPrompt := s.builder.BuildLearningPrompt([]string{}, messages)
+	teachPrompt := s.builder.BuildLearningPrompt(nil, messages)
 
 	resp, err := s.provider.Chat(ctx, "", []provider.Message{
 		{Role: "user", Content: teachPrompt},
@@ -716,4 +769,244 @@ func (s *Server) handleTeachDirect(category, topic, content string, req mcplib.C
 	s.triggerReindex()
 
 	return mcplib.NewToolResultText(fmt.Sprintf("Saved to brain/%s/%s.md", category, topic)), nil
+}
+
+func (s *Server) handleModuleList(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
+	reg := module.Default()
+	available := reg.Available()
+	sort.Strings(available)
+
+	enabled := make(map[string]bool, len(s.cfg.Modules))
+	for _, mc := range s.cfg.Modules {
+		if mc.Enabled {
+			enabled[mc.Name] = true
+		}
+	}
+
+	type moduleEntry struct {
+		Name        string `json:"name"`
+		Description string `json:"description"`
+		Enabled     bool   `json:"enabled"`
+	}
+	entries := make([]moduleEntry, 0, len(available))
+	for _, name := range available {
+		entries = append(entries, moduleEntry{
+			Name:        name,
+			Description: reg.Description(name),
+			Enabled:     enabled[name],
+		})
+	}
+
+	data, err := json.Marshal(entries)
+	if err != nil {
+		return mcplib.NewToolResultError(fmt.Sprintf("marshal: %v", err)), nil
+	}
+	return mcplib.NewToolResultText(string(data)), nil
+}
+
+func (s *Server) handleModuleRun(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
+	name, _ := req.RequireString("name")
+
+	reg := module.Default()
+
+	// Helper to run a single module.
+	runOne := func(modName string) (int, error) {
+		var modCfg map[string]interface{}
+		for _, mc := range s.cfg.Modules {
+			if mc.Name == modName {
+				modCfg = mc.Config
+				break
+			}
+		}
+
+		mod, err := reg.Build(modName, modCfg)
+		if err != nil {
+			return 0, err
+		}
+
+		learnings, err := mod.Fetch(ctx)
+		if err != nil {
+			return 0, fmt.Errorf("fetch: %w", err)
+		}
+		if len(learnings) == 0 {
+			return 0, nil
+		}
+
+		if err := s.brain.Learn(learnings); err != nil {
+			return 0, fmt.Errorf("save: %w", err)
+		}
+		if err := s.brain.RebuildTagIndex(); err != nil {
+			slog.Warn("rebuild tag index failed", "err", err)
+		}
+		s.triggerReindex()
+		return len(learnings), nil
+	}
+
+	// Run a specific module.
+	if name != "" {
+		count, err := runOne(name)
+		if err != nil {
+			return mcplib.NewToolResultError(fmt.Sprintf("%s: %v", name, err)), nil
+		}
+		if count == 0 {
+			return mcplib.NewToolResultText(fmt.Sprintf("%s: nothing fetched", name)), nil
+		}
+		return mcplib.NewToolResultText(fmt.Sprintf("%s → %d item(s) imported", name, count)), nil
+	}
+
+	// Run all enabled modules.
+	var sb strings.Builder
+	ran := 0
+	for _, mc := range s.cfg.Modules {
+		if !mc.Enabled {
+			continue
+		}
+		count, err := runOne(mc.Name)
+		if err != nil {
+			sb.WriteString(fmt.Sprintf("%s: error: %v\n", mc.Name, err))
+		} else if count == 0 {
+			sb.WriteString(fmt.Sprintf("%s: nothing fetched\n", mc.Name))
+		} else {
+			sb.WriteString(fmt.Sprintf("%s → %d item(s) imported\n", mc.Name, count))
+		}
+		ran++
+	}
+	if ran == 0 {
+		return mcplib.NewToolResultText("no modules enabled — set 'enabled: true' in config.yaml"), nil
+	}
+	return mcplib.NewToolResultText(strings.TrimSpace(sb.String())), nil
+}
+
+func (s *Server) handleSetupCommands(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
+	agentName := s.cfg.AgentName()
+
+	type cmdEntry struct {
+		Name       string `json:"name"`
+		Content    string `json:"content"`
+		InstallDir string `json:"install_dir"`
+	}
+
+	cmds := kai.ClaudeCommands(agentName)
+	installDir := "~/.claude/commands/" + agentName
+
+	entries := make([]cmdEntry, 0, len(cmds))
+	for name, content := range cmds {
+		entries = append(entries, cmdEntry{
+			Name:       name,
+			Content:    content,
+			InstallDir: installDir,
+		})
+	}
+	sort.Slice(entries, func(i, j int) bool { return entries[i].Name < entries[j].Name })
+
+	data, err := json.Marshal(entries)
+	if err != nil {
+		return mcplib.NewToolResultError(fmt.Sprintf("marshal: %v", err)), nil
+	}
+	return mcplib.NewToolResultText(string(data)), nil
+}
+
+func (s *Server) handleTasksTool(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
+	action, err := req.RequireString("action")
+	if err != nil || action == "" {
+		return mcplib.NewToolResultError("action is required: list, add, done, undone, or rm"), nil
+	}
+
+	todayPath := brain.TaskFilePath(time.Now())
+
+	switch action {
+	case "list":
+		bf, err := s.brain.Load(todayPath)
+		if err != nil {
+			return mcplib.NewToolResultText("No tasks for today."), nil
+		}
+		items := brain.ParseTasks(bf.Content)
+		if len(items) == 0 {
+			return mcplib.NewToolResultText("No tasks for today."), nil
+		}
+		var sb strings.Builder
+		done := 0
+		for _, t := range items {
+			if t.Done {
+				done++
+			}
+		}
+		fmt.Fprintf(&sb, "Tasks (%d/%d done):\n", done, len(items))
+		for i, t := range items {
+			mark := "○"
+			if t.Done {
+				mark = "✓"
+			}
+			fmt.Fprintf(&sb, "[%d] %s %s\n", i, mark, t.Text)
+		}
+		return mcplib.NewToolResultText(strings.TrimSpace(sb.String())), nil
+
+	case "add":
+		text, err := req.RequireString("text")
+		if err != nil || text == "" {
+			return mcplib.NewToolResultError("text is required for 'add'"), nil
+		}
+		priority, _ := req.RequireString("priority")
+		bf, loadErr := s.brain.Load(todayPath)
+		if loadErr != nil {
+			bf = brain.NewTaskFile(time.Now())
+		}
+		bf.Content = brain.AppendTask(bf.Content, text, priority)
+		bf.Updated = brain.DateOnly{Time: time.Now()}
+		if err := s.brain.Save(bf); err != nil {
+			return mcplib.NewToolResultError(fmt.Sprintf("save tasks: %v", err)), nil
+		}
+		s.triggerReindex()
+		return mcplib.NewToolResultText(fmt.Sprintf("Added: %s", text)), nil
+
+	case "done", "undone":
+		idxF, err := req.RequireFloat("index")
+		if err != nil {
+			return mcplib.NewToolResultError("index is required for 'done'/'undone'"), nil
+		}
+		idx := int(idxF)
+		bf, err := s.brain.Load(todayPath)
+		if err != nil {
+			return mcplib.NewToolResultError("no tasks for today"), nil
+		}
+		newContent, err := brain.ToggleTask(bf.Content, idx, action == "done")
+		if err != nil {
+			return mcplib.NewToolResultError(err.Error()), nil
+		}
+		bf.Content = newContent
+		bf.Updated = brain.DateOnly{Time: time.Now()}
+		if err := s.brain.Save(bf); err != nil {
+			return mcplib.NewToolResultError(fmt.Sprintf("save tasks: %v", err)), nil
+		}
+		verb := "Done"
+		if action == "undone" {
+			verb = "Undone"
+		}
+		return mcplib.NewToolResultText(fmt.Sprintf("%s: task [%d]", verb, idx)), nil
+
+	case "rm":
+		idxF, err := req.RequireFloat("index")
+		if err != nil {
+			return mcplib.NewToolResultError("index is required for 'rm'"), nil
+		}
+		idx := int(idxF)
+		bf, err := s.brain.Load(todayPath)
+		if err != nil {
+			return mcplib.NewToolResultError("no tasks for today"), nil
+		}
+		newContent, err := brain.RemoveTask(bf.Content, idx)
+		if err != nil {
+			return mcplib.NewToolResultError(err.Error()), nil
+		}
+		bf.Content = newContent
+		bf.Updated = brain.DateOnly{Time: time.Now()}
+		if err := s.brain.Save(bf); err != nil {
+			return mcplib.NewToolResultError(fmt.Sprintf("save tasks: %v", err)), nil
+		}
+		s.triggerReindex()
+		return mcplib.NewToolResultText(fmt.Sprintf("Removed task [%d]", idx)), nil
+
+	default:
+		return mcplib.NewToolResultError(fmt.Sprintf("unknown action %q — use: list, add, done, undone, rm", action)), nil
+	}
 }
