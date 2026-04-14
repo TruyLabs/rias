@@ -8,6 +8,7 @@
 <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/3d-force-graph@1/dist/3d-force-graph.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/postprocessing@6/build/index.js"></script>
 <script>
 tailwind.config = {
   darkMode: 'class',
@@ -286,76 +287,100 @@ dialog::backdrop { background: rgba(0,0,0,0.7); backdrop-filter: blur(4px); }
     <!-- Mobile Sidebar Overlay -->
     <div class="sidebar-overlay" :class="{ open: sidebarOpen }" @click="sidebarOpen = false"></div>
     <!-- Sidebar Navigation -->
-    <nav class="sidebar w-64 min-w-[256px] bg-dark-800 border-r border-dark-600 flex flex-col" :class="{ open: sidebarOpen }" aria-label="Main navigation">
-      <div class="px-5 py-4 border-b border-dark-600 flex items-center gap-3">
+    <nav class="sidebar bg-dark-800 border-r border-dark-600 flex flex-col"
+      :class="[{ open: sidebarOpen }, sidebarCollapsed ? 'w-14 min-w-[3.5rem]' : 'w-64 min-w-[256px]']"
+      style="transition: width 0.2s ease-in-out, min-width 0.2s ease-in-out;"
+      aria-label="Main navigation">
+      <!-- Collapsed header: just the toggle button centered -->
+      <div v-if="sidebarCollapsed" class="py-4 border-b border-dark-600 flex justify-center">
+        <button @click="sidebarCollapsed = false" type="button"
+          class="hidden md:flex w-9 h-9 items-center justify-center rounded-xl text-gray-500 hover:text-gray-200 hover:bg-dark-700/60 transition-colors"
+          title="Expand sidebar" aria-label="Expand sidebar">
+          <span aria-hidden="true" style="font-size:12px;">&#9654;</span>
+        </button>
+      </div>
+      <!-- Expanded header: icon + name + collapse button -->
+      <div v-else class="px-3 py-4 border-b border-dark-600 flex items-center gap-3">
         <div class="relative flex-shrink-0">
           <div class="w-9 h-9 rounded-xl bg-blue-500/20 flex items-center justify-center text-xl" aria-hidden="true">&#129504;</div>
           <span class="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 border-dark-800"
             :class="overview.index_health==='ok'?'bg-green-500':overview.index_health==='stale'?'bg-yellow-400':'bg-gray-600'"
             :title="'Index: '+(overview.index_health||'unknown')"></span>
         </div>
-        <div>
-          <h1 class="text-sm font-bold tracking-tight">{{ info.agent_name || 'kai' }}</h1>
+        <div class="flex-1 min-w-0">
+          <h1 class="text-sm font-bold tracking-tight truncate">{{ info.agent_name || 'kai' }}</h1>
           <p class="text-[11px] text-gray-500">{{ info.user_name }}'s brain</p>
         </div>
+        <button @click="sidebarCollapsed = true" type="button"
+          class="hidden md:flex flex-shrink-0 w-7 h-7 items-center justify-center rounded-md text-gray-600 hover:text-gray-300 hover:bg-dark-700/60 transition-colors"
+          title="Collapse sidebar" aria-label="Collapse sidebar">
+          <span aria-hidden="true" style="font-size:12px;">&#9664;</span>
+        </button>
       </div>
-      <ul class="p-3 flex-1 space-y-0.5" role="list">
+      <ul class="p-2 flex-1 space-y-0.5" role="list">
         <template v-for="(nav, i) in navItems" :key="nav.page || 'div-'+i">
-          <li v-if="nav.divider" class="my-1.5 mx-2 border-t border-dark-600" role="separator" aria-hidden="true"></li>
-          <li v-else>
+          <li v-if="nav.divider && !sidebarCollapsed" class="my-1.5 mx-2 border-t border-dark-600" role="separator" aria-hidden="true"></li>
+          <li v-else-if="!nav.divider">
             <button @click="page = nav.page; sidebarOpen = false" type="button"
               class="nav-btn"
-              :class="page === nav.page ? 'bg-blue-500/20 text-blue-400 font-semibold' : 'text-gray-400 hover:bg-dark-700/70 hover:text-gray-200'"
+              :class="[page === nav.page ? 'bg-blue-500/20 text-blue-400 font-semibold' : 'text-gray-400 hover:bg-dark-700/70 hover:text-gray-200', sidebarCollapsed ? 'justify-center px-0' : '']"
+              :title="sidebarCollapsed ? nav.label : undefined"
               :aria-current="page === nav.page ? 'page' : undefined">
-              <span class="text-base w-5 text-center" aria-hidden="true" v-html="nav.icon"></span>
-              {{ nav.label }}
-              <span v-if="nav.badge != null" class="ml-auto nav-badge" :aria-label="nav.badge + ' items'">{{ nav.badge }}</span>
+              <span class="text-base w-5 text-center flex-shrink-0" aria-hidden="true" v-html="nav.icon"></span>
+              <span v-show="!sidebarCollapsed">{{ nav.label }}</span>
+              <span v-if="nav.badge != null && !sidebarCollapsed" class="ml-auto nav-badge" :aria-label="nav.badge + ' items'">{{ nav.badge }}</span>
             </button>
           </li>
         </template>
       </ul>
-      <div class="px-5 py-4 border-t border-dark-600 text-sm-small" aria-label="Version info">
-        v{{ info.version }} ({{ info.commit }})
+      <!-- Sidebar Footer -->
+      <div class="border-t border-dark-600 overflow-hidden">
+        <template v-if="!sidebarCollapsed">
+          <!-- User + Sync -->
+          <div class="px-5 py-3 flex items-center gap-3">
+            <div class="w-8 h-8 rounded-full bg-blue-500/20 flex items-center justify-center text-blue-400 text-sm font-bold flex-shrink-0" aria-hidden="true">{{ (info.user_name || 'U')[0].toUpperCase() }}</div>
+            <span class="text-sm text-gray-300 font-medium truncate flex-1">{{ info.user_name }}</span>
+            <div v-if="syncConfigured" class="flex items-center gap-0.5 flex-shrink-0" role="toolbar" aria-label="Brain sync">
+              <button @click="doSync('pull')" :disabled="syncing" type="button"
+                class="w-7 h-7 flex items-center justify-center rounded-md text-gray-500 hover:text-blue-400 hover:bg-dark-700/60 transition-colors disabled:opacity-40 font-bold text-sm"
+                title="Pull from remote" aria-label="Pull brain from remote">&#8595;</button>
+              <button @click="doSync('push')" :disabled="syncing" type="button"
+                class="w-7 h-7 flex items-center justify-center rounded-md text-gray-500 hover:text-green-400 hover:bg-dark-700/60 transition-colors disabled:opacity-40 font-bold text-sm"
+                title="Push to remote" aria-label="Push brain to remote">&#8593;</button>
+              <span v-if="syncing" class="text-gray-600 text-xs ml-0.5 animate-spin inline-block">&#9696;</span>
+            </div>
+          </div>
+          <!-- Provider / Embeddings + Version -->
+          <div class="px-5 pb-3 flex items-center gap-3 flex-wrap">
+            <span v-if="llmService" class="flex items-center gap-1.5 text-xs" :title="llmService.tooltip">
+              <span class="w-1.5 h-1.5 rounded-full flex-shrink-0" :class="llmService.status==='connected'?'bg-green-500':'bg-gray-600'"></span>
+              <span class="text-gray-500 font-medium">{{ llmService.value }}</span>
+            </span>
+            <span v-if="embedService" class="flex items-center gap-1.5 text-xs" :title="embedService.tooltip">
+              <span class="w-1.5 h-1.5 rounded-full flex-shrink-0" :class="embedService.status==='connected'?'bg-blue-400':'bg-gray-600'"></span>
+              <span class="text-gray-500 font-medium">{{ embedService.value }}</span>
+            </span>
+            <span class="text-sm-small ml-auto" aria-label="Version info">v{{ info.version }}</span>
+          </div>
+        </template>
+        <!-- Collapsed: just avatar -->
+        <template v-else>
+          <div class="py-3 flex justify-center">
+            <div class="w-8 h-8 rounded-full bg-blue-500/20 flex items-center justify-center text-blue-400 text-sm font-bold" :title="info.user_name" aria-hidden="true">{{ (info.user_name || 'U')[0].toUpperCase() }}</div>
+          </div>
+        </template>
       </div>
     </nav>
 
-    <!-- Right column: top header + scrollable content -->
+    <!-- Right column: scrollable content -->
     <div class="flex-1 flex flex-col min-w-0 overflow-hidden">
 
-    <!-- Top Header -->
-    <header class="bg-dark-800 border-b border-dark-600 h-14 flex items-center px-5 gap-4 flex-shrink-0 z-10">
+    <!-- Mobile Header (menu button only) -->
+    <header class="bg-dark-800 border-b border-dark-600 h-12 flex items-center px-4 gap-3 flex-shrink-0 z-10 md:hidden">
       <button @click="sidebarOpen = !sidebarOpen" type="button" class="mobile-menu-btn" aria-label="Toggle menu">
         <span aria-hidden="true" class="text-lg">&#9776;</span>
       </button>
-      <div class="flex-1"></div>
-      <!-- Provider + Embeddings -->
-      <div class="items-center gap-4 hidden lg:flex">
-        <span v-if="llmService" class="flex items-center gap-1.5 text-xs" :title="llmService.tooltip">
-          <span class="w-1.5 h-1.5 rounded-full flex-shrink-0" :class="llmService.status==='connected'?'bg-green-500':'bg-gray-600'"></span>
-          <span class="text-gray-400 font-medium">{{ llmService.value }}</span>
-        </span>
-        <span v-if="embedService" class="flex items-center gap-1.5 text-xs" :title="embedService.tooltip">
-          <span class="w-1.5 h-1.5 rounded-full flex-shrink-0" :class="embedService.status==='connected'?'bg-blue-400':'bg-gray-600'"></span>
-          <span class="text-gray-400 font-medium">{{ embedService.value }}</span>
-        </span>
-      </div>
-      <div v-if="llmService || embedService" class="w-px h-5 bg-dark-600 hidden lg:block"></div>
-      <!-- Compact Brain Sync -->
-      <div v-if="syncConfigured" class="items-center gap-0.5 hidden sm:flex" role="toolbar" aria-label="Brain sync">
-        <button @click="doSync('pull')" :disabled="syncing" type="button"
-          class="w-7 h-7 flex items-center justify-center rounded-md text-gray-500 hover:text-blue-400 hover:bg-dark-700/60 transition-colors disabled:opacity-40 font-bold text-sm"
-          title="Pull from remote" aria-label="Pull brain from remote">&#8595;</button>
-        <button @click="doSync('push')" :disabled="syncing" type="button"
-          class="w-7 h-7 flex items-center justify-center rounded-md text-gray-500 hover:text-green-400 hover:bg-dark-700/60 transition-colors disabled:opacity-40 font-bold text-sm"
-          title="Push to remote" aria-label="Push brain to remote">&#8593;</button>
-        <span v-if="syncing" class="text-gray-600 text-xs ml-0.5 animate-spin inline-block">&#9696;</span>
-      </div>
-      <div class="w-px h-5 bg-dark-600"></div>
-      <!-- User avatar -->
-      <div class="flex items-center gap-2">
-        <div class="w-8 h-8 rounded-full bg-blue-500/20 flex items-center justify-center text-blue-400 text-sm font-bold flex-shrink-0" aria-hidden="true">{{ (info.user_name || 'U')[0].toUpperCase() }}</div>
-        <span class="text-xs text-gray-400 hidden sm:block">{{ info.user_name }}</span>
-      </div>
+      <h1 class="text-sm font-bold tracking-tight">{{ info.agent_name || 'kai' }}</h1>
     </header>
 
     <!-- Main Content -->
@@ -1179,6 +1204,7 @@ const app = createApp({
     const authError = ref('');
     const page = ref('overview');
     const sidebarOpen = ref(false);
+    const sidebarCollapsed = ref(false);
     const info = ref({});
     const overview = ref({});
     const tags = ref([]);
@@ -1553,6 +1579,24 @@ const app = createApp({
       const nodes = data.nodes.map(n => ({ ...n }));
       const links = (data.links || []).map(l => ({ ...l }));
 
+      // Pre-build adjacency set for O(1) neighbor lookup during hover.
+      const nodeNeighbors = new Map(); // nodeId → Set of neighbor nodeIds
+      nodes.forEach(n => nodeNeighbors.set(n.id, new Set()));
+      links.forEach(l => {
+        const s = l.source?.id ?? l.source;
+        const t = l.target?.id ?? l.target;
+        nodeNeighbors.get(s)?.add(t);
+        nodeNeighbors.get(t)?.add(s);
+      });
+
+      // Scale particles down for large graphs to keep GPU load manageable.
+      const nodeCount = nodes.length;
+      const particlesPerLink = nodeCount > 500 ? 0 : nodeCount > 200 ? 1 : 2;
+      // Reduce sphere resolution for large graphs.
+      const nodeRes = nodeCount > 800 ? 6 : nodeCount > 300 ? 8 : 12;
+
+      let hoveredNode = null;
+
       await nextTick();
       const el = document.getElementById('vec-graph');
       if (!el) { vecLoading.value = false; return; }
@@ -1561,17 +1605,41 @@ const app = createApp({
         .backgroundColor('#0a0a0f')
         .graphData({ nodes, links })
         .nodeLabel(n => `<div style="background:#1e293b;color:#e2e8f0;padding:4px 8px;border-radius:8px;font-size:12px;font-family:monospace;max-width:240px;word-break:break-all;border:1px solid #334155">${n.label}<br><span style="color:#64748b;font-size:10px">${n.doc}</span></div>`)
-        .nodeColor(n => groupColor(n.group))
-        .nodeVal(6)
+        .nodeColor(n => {
+          if (!hoveredNode) return groupColor(n.group);
+          const isNeighbor = n.id === hoveredNode.id || nodeNeighbors.get(hoveredNode.id)?.has(n.id);
+          return isNeighbor ? groupColor(n.group) : '#1e2a3a';
+        })
+        .nodeVal(n => hoveredNode && (n.id === hoveredNode.id) ? 10 : 6)
         .nodeOpacity(0.9)
-        .nodeResolution(12)
-        .linkColor(l => `rgba(148,163,184,${Math.max(0.15, (l.value || 0.5) - 0.2)})`)
-        .linkWidth(l => (l.value || 0.5) * 2)
-        .linkOpacity(0.5)
-        .linkDirectionalParticles(2)
+        .nodeResolution(nodeRes)
+        .linkColor(l => {
+          if (!hoveredNode) return `rgba(148,163,184,${Math.max(0.15, (l.value || 0.5) - 0.2)})`;
+          const s = l.source?.id ?? l.source;
+          const t = l.target?.id ?? l.target;
+          const active = s === hoveredNode.id || t === hoveredNode.id;
+          return active ? `rgba(148,163,184,0.85)` : `rgba(148,163,184,0.04)`;
+        })
+        .linkWidth(l => {
+          if (!hoveredNode) return (l.value || 0.5) * 2;
+          const s = l.source?.id ?? l.source;
+          const t = l.target?.id ?? l.target;
+          return (s === hoveredNode.id || t === hoveredNode.id) ? (l.value || 0.5) * 3.5 : 0.5;
+        })
+        .linkOpacity(0.6)
+        .linkDirectionalParticles(particlesPerLink)
         .linkDirectionalParticleWidth(l => (l.value || 0.5) * 1.5)
         .d3VelocityDecay(0.25)
         .d3AlphaDecay(0.015)
+        .warmupTicks(nodeCount > 500 ? 100 : 0)
+        .onNodeHover(n => {
+          hoveredNode = n || null;
+          vecGraphInstance.nodeColor(vecGraphInstance.nodeColor());
+          vecGraphInstance.linkColor(vecGraphInstance.linkColor());
+          vecGraphInstance.linkWidth(vecGraphInstance.linkWidth());
+          vecGraphInstance.nodeVal(vecGraphInstance.nodeVal());
+          el.style.cursor = n ? 'pointer' : 'default';
+        })
         .onNodeClick(n => { vecSelected.value = n; })
         .onBackgroundClick(() => { vecSelected.value = null; });
 
@@ -1580,8 +1648,19 @@ const app = createApp({
       // Link force keeps connected nodes at a readable distance.
       vecGraphInstance.d3Force('link').distance(80);
 
+      // Add bloom glow via postprocessing composer (if available in this CDN build).
+      try {
+        const composer = vecGraphInstance.postProcessingComposer?.();
+        if (composer && window.POSTPROCESSING) {
+          const { BloomEffect, EffectPass, KernelSize } = window.POSTPROCESSING;
+          const bloom = new BloomEffect({ luminanceThreshold: 0.15, luminanceSmoothing: 0.3, intensity: 1.2, kernelSize: KernelSize.MEDIUM });
+          composer.addPass(new EffectPass(vecGraphInstance.camera(), bloom));
+        }
+      } catch (_) { /* bloom unavailable — no-op */ }
+
       // Fit view after simulation settles.
-      setTimeout(() => vecGraphInstance && vecGraphInstance.zoomToFit(600, 60), 2500);
+      const fitDelay = nodeCount > 500 ? 4000 : 2500;
+      setTimeout(() => vecGraphInstance && vecGraphInstance.zoomToFit(600, 60), fitDelay);
 
       vecLoading.value = false;
     };
@@ -1903,7 +1982,7 @@ const app = createApp({
     });
 
     return {
-      locked, pin, authError, page, sidebarOpen, info, overview, tags, taskItems, activity, services, files, tools, plugins, pluginRunning, pluginResult, reorgActions, reorgLoading, loadReorg,
+      locked, pin, authError, page, sidebarOpen, sidebarCollapsed, info, overview, tags, taskItems, activity, services, files, tools, plugins, pluginRunning, pluginResult, reorgActions, reorgLoading, loadReorg,
       searchQuery, searchResults, syncConfigured, syncBackend, syncMsg, syncError, syncDetail, syncing, syncButtons, syncButtonClasses,
       chatMode, chatMessages, chatInput, chatLoading, chatStreaming, chatScroll, chatInputRef, autoResizeChat,
       dialogFile, dialogTab, dialogRendered, fileDialog,

@@ -8,8 +8,9 @@ import (
 	"strings"
 )
 
-// maxVecNodes limits nodes in the 3D graph for performance.
-const maxVecNodes = 500
+// maxVecNodes is a safety cap on nodes in the 3D graph.
+// Link-building uses a sliding-window ANN so this can be much larger than the old O(n²) limit.
+const maxVecNodes = 5000
 
 // topNeighbors is the max neighbors per node shown as links.
 const topNeighbors = 4
@@ -69,9 +70,9 @@ func (s *Server) handleVectors(w http.ResponseWriter, r *http.Request) {
 		entries = append(entries, vecEntry{key: k, vec: v})
 	}
 
-	// Random sample when exceeding limit.
-	rand.Shuffle(len(entries), func(i, j int) { entries[i], entries[j] = entries[j], entries[i] })
+	// Safety cap: truncate only if brain is extremely large.
 	if len(entries) > maxVecNodes {
+		rand.Shuffle(len(entries), func(i, j int) { entries[i], entries[j] = entries[j], entries[i] })
 		entries = entries[:maxVecNodes]
 	}
 
@@ -109,7 +110,7 @@ func (s *Server) handleVectors(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	links := buildVecLinks(entries, topNeighbors, minSimilarity)
+	links := buildVecLinks(entries, coords, topNeighbors, minSimilarity)
 
 	writeJSON(w, response{
 		Nodes:    nodes,
@@ -231,16 +232,60 @@ func scaleCoords(coords [][3]float64) {
 	}
 }
 
-func buildVecLinks(entries []vecEntry, topK int, minSim float64) []vecLink {
+// buildVecLinks builds graph edges using a projection-sort sliding window (O(n×W))
+// instead of all-pairs comparison (O(n²)). Nodes are sorted by their PCA x-coordinate
+// (first principal component, highest variance), and each node only competes against
+// its W nearest neighbours in that sorted order. W = topK×20, so for topK=4 we check
+// 80 candidates per node — enough to find tight clusters without a full pairwise scan.
+func buildVecLinks(entries []vecEntry, coords [][3]float64, topK int, minSim float64) []vecLink {
 	n := len(entries)
-	var links []vecLink
+	if n == 0 {
+		return nil
+	}
+
+	// Sort indices by PCA x-coordinate (PC1 = most variance).
+	order := make([]int, n)
+	for i := range order {
+		order[i] = i
+	}
+	sort.Slice(order, func(a, b int) bool {
+		return coords[order[a]][0] < coords[order[b]][0]
+	})
+
+	// pos[i] = position of entry i in the sorted order.
+	pos := make([]int, n)
+	for p, i := range order {
+		pos[i] = p
+	}
+
+	window := topK * 20
+	if window > n-1 {
+		window = n - 1
+	}
+
 	type scored struct {
 		j     int
 		score float64
 	}
+	var links []vecLink
+
 	for i := 0; i < n; i++ {
+		p := pos[i]
+		lo := p - window
+		hi := p + window
+		if lo < 0 {
+			lo = 0
+		}
+		if hi >= n {
+			hi = n - 1
+		}
+
 		var sims []scored
-		for j := i + 1; j < n; j++ {
+		for q := lo; q <= hi; q++ {
+			j := order[q]
+			if j <= i {
+				continue // emit each pair once (i < j)
+			}
 			sc := cosSim32(entries[i].vec, entries[j].vec)
 			if sc >= minSim {
 				sims = append(sims, scored{j, sc})
