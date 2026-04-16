@@ -7,17 +7,17 @@
 ## Build & Test
 
 ```bash
-make build          # Build ./kai binary (with version ldflags)
+make build          # Build ./rias binary (with version ldflags)
 make install        # Install to $GOPATH/bin
 make test           # go test ./... -v
-make clean          # Remove ./kai binary
+make clean          # Remove ./rias binary
 
 go test ./internal/router/... -v    # Test specific package
 go test -run TestName ./...         # Run specific test
 go vet ./...                         # Lint
 ```
 
-The binary is always named `kai`. Run it as `./kai` locally after building.
+The binary is always named `rias`. Run it as `./rias` locally after building.
 
 ## Architecture
 
@@ -113,7 +113,7 @@ All command constructors are **unexported** and take no parameters. Config is lo
 ## Testing
 
 - Unit tests: `*_test.go` alongside source files
-- E2e tests: `tests/e2e/` (Playwright, requires `./kai dashboard` running on port 9234)
+- E2e tests: `tests/e2e/` (Playwright, requires `./rias dashboard` running on port 9234)
 - Run e2e: `pnpm exec playwright test`
 
 ## Release
