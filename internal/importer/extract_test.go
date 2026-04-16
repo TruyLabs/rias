@@ -32,13 +32,16 @@ func TestBuildExtractionPromptContainsMessages(t *testing.T) {
 // stubProvider is a minimal provider.Provider for testing.
 type stubProvider struct {
 	response string
+	called   bool
 }
 
 func (s *stubProvider) Chat(_ context.Context, _ string, _ []provider.Message, _ ...provider.Option) (*provider.Response, error) {
+	s.called = true
 	return &provider.Response{Content: s.response}, nil
 }
 
 func (s *stubProvider) Stream(_ context.Context, _ string, _ []provider.Message, _ ...provider.Option) (<-chan provider.Chunk, error) {
+	s.called = true
 	ch := make(chan provider.Chunk, 1)
 	ch <- provider.Chunk{Content: s.response, Done: true}
 	close(ch)
@@ -79,5 +82,8 @@ func TestExtractLearningsEmptyConversation(t *testing.T) {
 	}
 	if len(learnings) != 0 {
 		t.Errorf("expected 0 learnings, got %d", len(learnings))
+	}
+	if stub.called {
+		t.Error("expected LLM not to be called for empty conversation")
 	}
 }
