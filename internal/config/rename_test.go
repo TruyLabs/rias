@@ -20,3 +20,9 @@ func TestDefaultPathsUseRias(t *testing.T) {
 		t.Errorf("expected DefaultSessionsPath=~/.rias/sessions, got %q", config.DefaultSessionsPath)
 	}
 }
+
+func TestDefaultUserNameIsUser(t *testing.T) {
+	if config.DefaultUserName != "User" {
+		t.Errorf("expected DefaultUserName=User, got %q", config.DefaultUserName)
+	}
+}

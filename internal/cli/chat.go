@@ -24,7 +24,7 @@ import (
 
 // Credential storage paths relative to home directory.
 const (
-	credentialsDir  = ".kai"
+	credentialsDir  = "." + config.DefaultAgentName
 	credentialsFile = "credentials.json"
 )
 
