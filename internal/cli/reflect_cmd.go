@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/TruyLabs/rias/internal/brain"
+	"github.com/TruyLabs/rias/internal/config"
 	"github.com/TruyLabs/rias/internal/prompt"
 	"github.com/TruyLabs/rias/internal/provider"
 	"github.com/TruyLabs/rias/internal/reflector"
@@ -51,7 +52,7 @@ func runReflect(since string) error {
 		cutoff = time.Now().Add(-d)
 	}
 
-	sessions, err := reflector.LoadRecentSessions(cfg.SessionsPath, cutoff)
+	sessions, err := reflector.LoadRecentSessions(config.ExpandPath(cfg.SessionsPath), cutoff)
 	if err != nil {
 		return fmt.Errorf("load sessions: %w", err)
 	}
