@@ -14,7 +14,7 @@ import (
 )
 
 const (
-	updateCheckURL      = "https://api.github.com/repos/norenis/kai/releases/latest"
+	updateCheckURL      = "https://api.github.com/repos/TruyLabs/rias/releases/latest"
 	updateCheckInterval = 24 * time.Hour
 )
 
