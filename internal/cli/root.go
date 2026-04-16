@@ -40,6 +40,7 @@ func NewRootCmd() *cobra.Command {
 	root.AddCommand(newImportHistoryCmd())
 	root.AddCommand(newIndexRepoCmd())
 	root.AddCommand(newGoalCmd())
+	root.AddCommand(newReflectCmd())
 
 	return root
 }
