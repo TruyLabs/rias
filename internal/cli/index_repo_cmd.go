@@ -30,7 +30,7 @@ func runIndexRepo(repoPath string) error {
 		return fmt.Errorf("resolve repo path: %w", err)
 	}
 	if _, err := os.Stat(absRepo); err != nil {
-		return fmt.Errorf("repo path not found: %s", absRepo)
+		return fmt.Errorf("repo path not found: %w", err)
 	}
 
 	brainPath := getBrainPath()
