@@ -50,6 +50,9 @@ brain/
   style/      # Writing/coding patterns
   decisions/  # Architectural & life decisions
   knowledge/  # Domain expertise
+  tasks/      # Current and pending tasks
+  expertise/  # Skills and areas of proficiency
+  goals/      # Short and long-term goals
   index.json          # BM25 inverted index
   vectors.bin.gz      # Vector embeddings
 ```
