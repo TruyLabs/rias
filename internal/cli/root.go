@@ -38,6 +38,7 @@ func NewRootCmd() *cobra.Command {
 	root.AddCommand(newModuleCmd())
 	root.AddCommand(newTaskCmd())
 	root.AddCommand(newImportHistoryCmd())
+	root.AddCommand(newIndexRepoCmd())
 
 	return root
 }
