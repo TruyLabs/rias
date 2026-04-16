@@ -26,6 +26,7 @@ func TestParseSinceDuration(t *testing.T) {
 		{"0d", 0, true},
 		{"0w", 0, true},
 		{"", 0, true},
+		{"1.5d", 0, true},
 	}
 	for _, tt := range tests {
 		d, err := reflector.ParseSinceDuration(tt.input)

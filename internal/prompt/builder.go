@@ -142,5 +142,26 @@ func (b *Builder) BuildReflectPrompt(brainFiles []*brain.BrainFile, sessionMessa
 	for _, m := range sessionMessages {
 		sb.WriteString(fmt.Sprintf("%s: %s\n", m.Role, m.Content))
 	}
+
+	categories := strings.Join(brain.DefaultCategories, "|")
+	sb.WriteString(fmt.Sprintf(`
+Return format:
+[{
+  "category": "%s",
+  "topic": "slug-for-filename",
+  "tags": ["tag1", "tag2"],
+  "content": "What was learned, in markdown",
+  "confidence": "high|medium|low",
+  "action": "create|append|replace"
+}]
+
+Rules:
+- "replace" if %s corrected or changed a previous opinion, or new info directly contradicts existing
+- "append" if the topic file exists and this adds genuinely new info not already in the file
+- "create" if this is a new topic not yet in the brain
+- Return [] if the conversation contains no new information about %s
+- Only extract facts about %s, not general knowledge
+- Return ONLY the JSON array, no other text
+`, categories, b.userName, b.userName, b.userName))
 	return sb.String()
 }

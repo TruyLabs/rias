@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -21,15 +22,15 @@ func ParseSinceDuration(s string) (time.Duration, error) {
 		return 0, fmt.Errorf("invalid duration %q: expected Nd or Nw (e.g. 7d, 1w)", s)
 	}
 	if strings.HasSuffix(s, "w") {
-		var n int
-		if _, err := fmt.Sscanf(s[:len(s)-1], "%d", &n); err != nil || n <= 0 {
+		n, err := strconv.Atoi(s[:len(s)-1])
+		if err != nil || n <= 0 {
 			return 0, fmt.Errorf("invalid duration %q: expected positive Nw (e.g. 1w, 2w)", s)
 		}
 		return time.Duration(n) * 7 * 24 * time.Hour, nil
 	}
 	if strings.HasSuffix(s, "d") {
-		var n int
-		if _, err := fmt.Sscanf(s[:len(s)-1], "%d", &n); err != nil || n <= 0 {
+		n, err := strconv.Atoi(s[:len(s)-1])
+		if err != nil || n <= 0 {
 			return 0, fmt.Errorf("invalid duration %q: expected positive Nd (e.g. 7d, 30d)", s)
 		}
 		return time.Duration(n) * 24 * time.Hour, nil
