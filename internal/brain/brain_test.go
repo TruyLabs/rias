@@ -79,3 +79,19 @@ func TestSaveBrainFile(t *testing.T) {
 		t.Errorf("saved file missing content, got:\n%s", content)
 	}
 }
+
+func TestDefaultCategoriesIncludePersonalizationCategories(t *testing.T) {
+	required := []string{"expertise", "goals"}
+	for _, cat := range required {
+		found := false
+		for _, c := range DefaultCategories {
+			if c == cat {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("DefaultCategories missing required category: %q", cat)
+		}
+	}
+}

@@ -21,7 +21,7 @@ const (
 )
 
 // DefaultCategories are the standard brain knowledge categories.
-var DefaultCategories = []string{"identity", "opinions", "style", "decisions", "knowledge", "tasks"}
+var DefaultCategories = []string{"identity", "opinions", "style", "decisions", "knowledge", "tasks", "expertise", "goals"}
 
 // DateOnly is a time.Time that marshals/unmarshals as "2006-01-02".
 type DateOnly struct {
