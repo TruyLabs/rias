@@ -13,8 +13,8 @@ import (
 // Default configuration values.
 const (
 	DefaultConfigFile      = "config.yaml"
-	DefaultBrainPath       = "~/.kai/brain"
-	DefaultSessionsPath    = "~/.kai/sessions"
+	DefaultBrainPath       = "~/.rias/brain"
+	DefaultSessionsPath    = "~/.rias/sessions"
 	DefaultMaxContextFiles = 5
 	DefaultListenAddr      = "0.0.0.0:8080"
 	DefaultProviderTimeout = 120 // seconds
@@ -34,8 +34,8 @@ func ExpandPath(path string) string {
 
 // Default agent identity values.
 const (
-	DefaultAgentName = "kai"
-	DefaultUserName  = "Kyle"
+	DefaultAgentName = "rias"
+	DefaultUserName  = "User"
 )
 
 // Config is the top-level application configuration.
