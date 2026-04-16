@@ -3,6 +3,7 @@ package importer
 import (
 	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -18,7 +19,7 @@ type ImportManifest struct {
 // Returns an empty manifest (not an error) when the file is missing.
 func LoadManifest(path string) (*ImportManifest, error) {
 	data, err := os.ReadFile(path)
-	if os.IsNotExist(err) {
+	if errors.Is(err, os.ErrNotExist) {
 		return &ImportManifest{Processed: make(map[string]string)}, nil
 	}
 	if err != nil {

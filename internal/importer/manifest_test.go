@@ -9,7 +9,7 @@ import (
 )
 
 func TestLoadManifestMissingFile(t *testing.T) {
-	m, err := importer.LoadManifest("/tmp/rias_nonexistent_manifest.json")
+	m, err := importer.LoadManifest(filepath.Join(t.TempDir(), "missing.json"))
 	if err != nil {
 		t.Fatalf("expected no error for missing file, got: %v", err)
 	}
