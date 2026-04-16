@@ -1,8 +1,8 @@
 .PHONY: build install test clean
 
-BINARY    = kai
-BUILD_DIR = ./cmd/kai
-MODULE    = github.com/norenis/kai
+BINARY    = rias
+BUILD_DIR = ./cmd/rias
+MODULE    = github.com/TruyLabs/rias
 
 VERSION   ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 COMMIT    ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo none)

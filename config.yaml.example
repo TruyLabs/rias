@@ -1,5 +1,5 @@
 agent:
-  name: kai           # Display name for the AI agent
+  name: rias           # Display name for the AI agent
   user_name: Kyle     # Your name — used in prompts and learning extraction
 
 provider: claude
@@ -15,7 +15,7 @@ providers:
     # base_url: https://api.openai.com     # optional: custom endpoint (e.g. Ollama)
     # timeout_sec: 120                     # optional: HTTP timeout (default: 120)
 brain:
-  path: ~/.kai/brain  # default; set to any path you prefer
+  path: ~/.rias/brain  # default; set to any path you prefer
   max_context_files: 5
   embeddings:
     provider: ""  # "ollama", "lsi", or "" (auto: tries ollama, falls back to lsi)
@@ -27,13 +27,13 @@ brain:
       enabled: false
       # remote: git@github.com:user/kai-brain.git  # optional: push/pull to remote
       # branch: main                                # default: main
-sessions_path: ~/.kai/sessions
+sessions_path: ~/.rias/sessions
 server:
   listen_addr: 0.0.0.0:8080
   dashboard_pin: ""  # PIN lock for dashboard (empty = no auth)
 
-# Modules pull external data into the brain on demand via 'kai module run'.
-# Run 'kai module list' to see all available modules.
+# Modules pull external data into the brain on demand via 'rias module run'.
+# Run 'rias module list' to see all available modules.
 modules:
   - name: github_prs
     enabled: false

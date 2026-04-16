@@ -13,7 +13,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-const moduleURL = "github.com/TruyLabs/rias/cmd/kai@latest"
+const moduleURL = "github.com/TruyLabs/rias/cmd/rias@latest"
 
 func newSetupCmd() *cobra.Command {
 	var useLocal bool
