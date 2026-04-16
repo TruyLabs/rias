@@ -88,3 +88,22 @@ func TestGoalFilePath(t *testing.T) {
 		t.Errorf("expected goals/goals.md, got %q", p)
 	}
 }
+
+func TestToggleGoalDonePreservesHorizon(t *testing.T) {
+	// horizon "x" is the pathological case: goalMarkerRe must not replace it
+	content := "- [ ] [x] Explore something\n"
+	result, err := brain.ToggleGoalDone(content, 0, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	goals := brain.ParseGoals(result)
+	if len(goals) != 1 {
+		t.Fatalf("expected 1 goal, got %d (horizon tag may have been corrupted)", len(goals))
+	}
+	if goals[0].Horizon != "x" {
+		t.Errorf("horizon corrupted: want %q, got %q", "x", goals[0].Horizon)
+	}
+	if !goals[0].Done {
+		t.Error("expected goal to be marked done")
+	}
+}

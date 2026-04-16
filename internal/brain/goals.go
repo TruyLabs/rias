@@ -9,13 +9,12 @@ import (
 
 // GoalItem represents a single goal entry parsed from a goals brain file.
 type GoalItem struct {
-	Text    string // goal description
-	Horizon string // "short" | "medium" | "long"
-	Done    bool
+	Text    string `json:"text"`
+	Horizon string `json:"horizon"` // "short" | "medium" | "long"
+	Done    bool   `json:"done"`
 }
 
-var goalLineRe = regexp.MustCompile(`^- \[([ x])\] \[(\w+)\] (.+)$`)
-var goalMarkerRe = regexp.MustCompile(`\[[ x]\]`)
+var goalLineRe = regexp.MustCompile(`^- \[([ x])\] \[([^\]]+)\] (.+)$`)
 
 // GoalFilePath returns the brain-relative path for the goals file.
 func GoalFilePath() string {
@@ -65,7 +64,17 @@ func ToggleGoalDone(content string, idx int, done bool) (string, error) {
 				if done {
 					marker = "[x]"
 				}
-				lines[i] = goalMarkerRe.ReplaceAllString(line, marker)
+				// Use goalLineRe to find the position of the first `[ ]` or `[x]` marker.
+				// We match on the trimmed line but operate on the original to preserve leading whitespace.
+				trimmed := strings.TrimSpace(line)
+				m := goalLineRe.FindStringSubmatch(trimmed)
+				if m != nil {
+					// The marker starts at index 2 in the trimmed line ("- [").
+					leadingSpaces := len(line) - len(trimmed)
+					markerStart := leadingSpaces + 2 // after "- "
+					markerEnd := markerStart + 3      // len("[ ]") == 3
+					lines[i] = line[:markerStart] + marker + line[markerEnd:]
+				}
 				return strings.Join(lines, "\n"), nil
 			}
 			goalIdx++
