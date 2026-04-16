@@ -12,7 +12,7 @@ import (
 // Symbol represents a top-level named declaration extracted from a source file.
 type Symbol struct {
 	Name string // identifier name
-	Kind string // "func" | "method" | "type" | "const" | "var"
+	Kind string // "func" | "method" | "type"
 	Code string // relevant source snippet (first 500 chars)
 }
 
@@ -92,14 +92,14 @@ type patternSet struct {
 }
 
 var tsPatterns = []patternSet{
-	{"func", regexp.MustCompile(`(?m)^(?:export\s+)?(?:async\s+)?function\s+(\w+)`)},
-	{"type", regexp.MustCompile(`(?m)^(?:export\s+)?class\s+(\w+)`)},
-	{"type", regexp.MustCompile(`(?m)^(?:export\s+)?(?:interface|type)\s+(\w+)`)},
+	{"func", regexp.MustCompile(`^(?:export\s+)?(?:async\s+)?function\s+(\w+)`)},
+	{"type", regexp.MustCompile(`^(?:export\s+)?class\s+(\w+)`)},
+	{"type", regexp.MustCompile(`^(?:export\s+)?(?:interface|type)\s+(\w+)`)},
 }
 
 var pyPatterns = []patternSet{
-	{"func", regexp.MustCompile(`(?m)^def\s+(\w+)`)},
-	{"type", regexp.MustCompile(`(?m)^class\s+(\w+)`)},
+	{"func", regexp.MustCompile(`^def\s+(\w+)`)},
+	{"type", regexp.MustCompile(`^class\s+(\w+)`)},
 }
 
 // extractPatternSymbols applies regex patterns to extract symbol names.
@@ -107,8 +107,8 @@ var pyPatterns = []patternSet{
 func extractPatternSymbols(src []byte, patterns []patternSet) []Symbol {
 	var symbols []Symbol
 	lines := strings.Split(string(src), "\n")
-	for _, ps := range patterns {
-		for _, line := range lines {
+	for _, line := range lines {
+		for _, ps := range patterns {
 			m := ps.pattern.FindStringSubmatch(line)
 			if len(m) >= 2 {
 				name := m[1]
@@ -117,6 +117,7 @@ func extractPatternSymbols(src []byte, patterns []patternSet) []Symbol {
 					code = code[:200]
 				}
 				symbols = append(symbols, Symbol{Name: name, Kind: ps.kind, Code: code})
+				break // one match per line is enough
 			}
 		}
 	}
