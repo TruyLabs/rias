@@ -17,7 +17,7 @@ type gptConversation struct {
 type gptNode struct {
 	ID       string   `json:"id"`
 	Message  *gptMsg  `json:"message"`
-	Parent   string   `json:"parent"`
+	Parent   *string  `json:"parent"`
 	Children []string `json:"children"`
 }
 
@@ -61,7 +61,11 @@ func walkGPTTree(mapping map[string]gptNode) []Message {
 	// Find root: node whose parent is empty or not in the mapping.
 	rootID := ""
 	for id, node := range mapping {
-		if node.Parent == "" || mapping[node.Parent].ID == "" {
+		if node.Parent == nil {
+			rootID = id
+			break
+		}
+		if _, ok := mapping[*node.Parent]; !ok {
 			rootID = id
 			break
 		}
