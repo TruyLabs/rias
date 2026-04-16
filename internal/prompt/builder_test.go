@@ -58,3 +58,35 @@ func TestBuildMessages(t *testing.T) {
 		t.Errorf("last message should be new user input")
 	}
 }
+
+func TestBuildReflectPrompt(t *testing.T) {
+	b := NewBuilder("rias", "User")
+	msgs := []provider.Message{
+		{Role: "user", Content: "how do I structure a Go service?"},
+		{Role: "assistant", Content: "Here are some patterns..."},
+		{Role: "user", Content: "I prefer clean architecture"},
+	}
+
+	p := b.BuildReflectPrompt(nil, msgs)
+	if p == "" {
+		t.Error("expected non-empty prompt")
+	}
+	if !strings.Contains(p, "patterns") {
+		t.Error("expected prompt to mention patterns analysis")
+	}
+	if !strings.Contains(p, "how do I structure a Go service") {
+		t.Error("expected prompt to include session messages")
+	}
+
+	// With brain context files
+	files := []*brain.BrainFile{
+		{
+			Path:    "style/writing.md",
+			Content: "\nUser writes concisely.\n",
+		},
+	}
+	p2 := b.BuildReflectPrompt(files, msgs)
+	if !strings.Contains(p2, "User writes concisely") {
+		t.Error("expected prompt to include brain context")
+	}
+}

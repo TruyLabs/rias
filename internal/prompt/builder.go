@@ -111,3 +111,36 @@ Rules:
 `, categories, b.userName, b.userName, b.userName))
 	return sb.String()
 }
+
+// BuildReflectPrompt creates a prompt for analyzing patterns across multiple sessions.
+// It asks the LLM to extract communication style, vocabulary, and recurring interests,
+// returning the same JSON Learning format as BuildLearningPrompt.
+func (b *Builder) BuildReflectPrompt(brainFiles []*brain.BrainFile, sessionMessages []provider.Message) string {
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf(
+		"Analyze these conversations between %s and an AI assistant to extract behavioral patterns. "+
+			"Look for: how %s phrases questions, vocabulary they repeatedly use, topics they return to, "+
+			"and values or preferences expressed implicitly. "+
+			"Return a JSON array of learnings with categories 'style', 'opinions', or 'knowledge'. "+
+			"Focus on patterns that appear multiple times, not one-off mentions. "+
+			"Return [] if no clear patterns emerge.\n\n",
+		b.userName, b.userName,
+	))
+
+	if len(brainFiles) > 0 {
+		sb.WriteString("Existing brain entries (skip duplicates; only extract new patterns):\n")
+		for _, bf := range brainFiles {
+			content := strings.TrimSpace(bf.Content)
+			if len(content) > 300 {
+				content = content[:300] + "..."
+			}
+			sb.WriteString(fmt.Sprintf("### %s\n%s\n\n", bf.Path, content))
+		}
+	}
+
+	sb.WriteString("Sessions to analyze:\n")
+	for _, m := range sessionMessages {
+		sb.WriteString(fmt.Sprintf("%s: %s\n", m.Role, m.Content))
+	}
+	return sb.String()
+}
