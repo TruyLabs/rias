@@ -43,16 +43,21 @@ func SaveRepoManifest(path string, m *RepoManifest) error {
 	}
 	tmp := path + ".tmp"
 	if err := os.WriteFile(tmp, data, 0644); err != nil {
+		_ = os.Remove(tmp)
 		return fmt.Errorf("write repo manifest: %w", err)
 	}
-	return os.Rename(tmp, path)
+	if err := os.Rename(tmp, path); err != nil {
+		_ = os.Remove(tmp)
+		return fmt.Errorf("rename repo manifest: %w", err)
+	}
+	return nil
 }
 
 // FileHash returns a short SHA-256 hex hash of the file at path.
 func FileHash(path string) (string, error) {
 	f, err := os.Open(path)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("open %s: %w", path, err)
 	}
 	defer f.Close()
 	h := sha256.New()

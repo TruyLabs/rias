@@ -66,7 +66,8 @@ func IndexRepo(repoPath, brainPath string) (IndexResult, error) {
 
 		hash, err := FileHash(absPath)
 		if err != nil {
-			return nil // skip unreadable files
+			fmt.Fprintf(os.Stderr, "  ⚠ skip %s: %v\n", relPath, err)
+			return nil
 		}
 
 		if manifest.Files[relPath] == hash {
@@ -76,6 +77,7 @@ func IndexRepo(repoPath, brainPath string) (IndexResult, error) {
 
 		src, err := os.ReadFile(absPath)
 		if err != nil {
+			fmt.Fprintf(os.Stderr, "  ⚠ skip %s: %v\n", relPath, err)
 			return nil
 		}
 
