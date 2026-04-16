@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/norenis/kai/internal/brain"
+	"github.com/TruyLabs/rias/internal/brain"
 )
 
 const githubAPIBase = "https://api.github.com"

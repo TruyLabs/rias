@@ -7,10 +7,10 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/norenis/kai/internal/brain"
-	"github.com/norenis/kai/internal/config"
-	kaimcp "github.com/norenis/kai/internal/mcp"
-	"github.com/norenis/kai/internal/session"
+	"github.com/TruyLabs/rias/internal/brain"
+	"github.com/TruyLabs/rias/internal/config"
+	kaimcp "github.com/TruyLabs/rias/internal/mcp"
+	"github.com/TruyLabs/rias/internal/session"
 	"github.com/spf13/cobra"
 )
 

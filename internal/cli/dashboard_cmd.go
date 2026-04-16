@@ -7,10 +7,10 @@ import (
 	"os/exec"
 	"runtime"
 
-	"github.com/norenis/kai/internal/brain"
-	"github.com/norenis/kai/internal/config"
-	"github.com/norenis/kai/internal/dashboard"
-	bsync "github.com/norenis/kai/internal/sync"
+	"github.com/TruyLabs/rias/internal/brain"
+	"github.com/TruyLabs/rias/internal/config"
+	"github.com/TruyLabs/rias/internal/dashboard"
+	bsync "github.com/TruyLabs/rias/internal/sync"
 	"github.com/spf13/cobra"
 )
 

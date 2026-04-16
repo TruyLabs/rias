@@ -6,7 +6,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/norenis/kai/internal/brain"
+	"github.com/TruyLabs/rias/internal/brain"
 )
 
 var stopWords = map[string]bool{

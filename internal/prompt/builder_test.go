@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/norenis/kai/internal/brain"
-	"github.com/norenis/kai/internal/provider"
+	"github.com/TruyLabs/rias/internal/brain"
+	"github.com/TruyLabs/rias/internal/provider"
 )
 
 func TestBuildSystemPrompt(t *testing.T) {

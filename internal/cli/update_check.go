@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	kai "github.com/norenis/kai"
-	"github.com/norenis/kai/internal/config"
+	kai "github.com/TruyLabs/rias"
+	"github.com/TruyLabs/rias/internal/config"
 )
 
 const (

@@ -7,13 +7,13 @@ import (
 	"os/exec"
 	"path/filepath"
 
-	kai "github.com/norenis/kai"
-	"github.com/norenis/kai/internal/brain"
-	"github.com/norenis/kai/internal/config"
+	kai "github.com/TruyLabs/rias"
+	"github.com/TruyLabs/rias/internal/brain"
+	"github.com/TruyLabs/rias/internal/config"
 	"github.com/spf13/cobra"
 )
 
-const moduleURL = "github.com/norenis/kai/cmd/kai@latest"
+const moduleURL = "github.com/TruyLabs/rias/cmd/kai@latest"
 
 func newSetupCmd() *cobra.Command {
 	var useLocal bool

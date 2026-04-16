@@ -18,12 +18,12 @@ import (
 
 	"context"
 
-	kai "github.com/norenis/kai"
-	"github.com/norenis/kai/internal/brain"
-	"github.com/norenis/kai/internal/config"
-	"github.com/norenis/kai/internal/module"
-	"github.com/norenis/kai/internal/router"
-	bsync "github.com/norenis/kai/internal/sync"
+	kai "github.com/TruyLabs/rias"
+	"github.com/TruyLabs/rias/internal/brain"
+	"github.com/TruyLabs/rias/internal/config"
+	"github.com/TruyLabs/rias/internal/module"
+	"github.com/TruyLabs/rias/internal/router"
+	bsync "github.com/TruyLabs/rias/internal/sync"
 	"github.com/xuri/excelize/v2"
 )
 

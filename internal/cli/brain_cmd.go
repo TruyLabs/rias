@@ -11,10 +11,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/norenis/kai/internal/auth"
-	"github.com/norenis/kai/internal/brain"
-	"github.com/norenis/kai/internal/config"
-	"github.com/norenis/kai/internal/provider"
+	"github.com/TruyLabs/rias/internal/auth"
+	"github.com/TruyLabs/rias/internal/brain"
+	"github.com/TruyLabs/rias/internal/config"
+	"github.com/TruyLabs/rias/internal/provider"
 	"github.com/spf13/cobra"
 	"github.com/xuri/excelize/v2"
 )

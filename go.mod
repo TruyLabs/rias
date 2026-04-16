@@ -1,4 +1,4 @@
-module github.com/norenis/kai
+module github.com/TruyLabs/rias
 
 go 1.25.0
 

@@ -5,8 +5,8 @@ import (
 	"os"
 	"strings"
 
-	kai "github.com/norenis/kai"
-	"github.com/norenis/kai/internal/config"
+	kai "github.com/TruyLabs/rias"
+	"github.com/TruyLabs/rias/internal/config"
 	"github.com/spf13/cobra"
 )
 

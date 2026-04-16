@@ -8,11 +8,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/norenis/kai/internal/brain"
-	"github.com/norenis/kai/internal/prompt"
-	"github.com/norenis/kai/internal/provider"
-	"github.com/norenis/kai/internal/retriever"
-	"github.com/norenis/kai/internal/session"
+	"github.com/TruyLabs/rias/internal/brain"
+	"github.com/TruyLabs/rias/internal/prompt"
+	"github.com/TruyLabs/rias/internal/provider"
+	"github.com/TruyLabs/rias/internal/retriever"
+	"github.com/TruyLabs/rias/internal/session"
 )
 
 type learningMockProvider struct{}

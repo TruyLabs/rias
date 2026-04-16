@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/norenis/kai/internal/brain"
-	"github.com/norenis/kai/internal/provider"
+	"github.com/TruyLabs/rias/internal/brain"
+	"github.com/TruyLabs/rias/internal/provider"
 )
 
 // Builder assembles prompts from brain context using configurable identity.

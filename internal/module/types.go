@@ -3,7 +3,7 @@ package module
 import (
 	"context"
 
-	"github.com/norenis/kai/internal/brain"
+	"github.com/TruyLabs/rias/internal/brain"
 )
 
 // Module is the interface all kai modules must implement.

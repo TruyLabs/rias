@@ -4,9 +4,9 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/norenis/kai/internal/brain"
-	"github.com/norenis/kai/internal/config"
-	bsync "github.com/norenis/kai/internal/sync"
+	"github.com/TruyLabs/rias/internal/brain"
+	"github.com/TruyLabs/rias/internal/config"
+	bsync "github.com/TruyLabs/rias/internal/sync"
 	"github.com/spf13/cobra"
 )
 

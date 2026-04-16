@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/norenis/kai/internal/brain"
-	"github.com/norenis/kai/internal/config"
-	"github.com/norenis/kai/internal/module"
+	"github.com/TruyLabs/rias/internal/brain"
+	"github.com/TruyLabs/rias/internal/config"
+	"github.com/TruyLabs/rias/internal/module"
 	"github.com/spf13/cobra"
 )
 

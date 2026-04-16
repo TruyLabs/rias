@@ -1,6 +1,6 @@
 package main
 
-import "github.com/norenis/kai/internal/cli"
+import "github.com/TruyLabs/rias/internal/cli"
 
 func main() {
 	cli.Execute()

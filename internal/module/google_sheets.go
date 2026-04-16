@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/norenis/kai/internal/brain"
+	"github.com/TruyLabs/rias/internal/brain"
 )
 
 const sheetsAPIBase = "https://sheets.googleapis.com/v4/spreadsheets"

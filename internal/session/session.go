@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/norenis/kai/internal/provider"
+	"github.com/TruyLabs/rias/internal/provider"
 )
 
 const (

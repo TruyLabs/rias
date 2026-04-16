@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/norenis/kai/internal/auth"
+	"github.com/TruyLabs/rias/internal/auth"
 	"github.com/spf13/cobra"
 )
 
