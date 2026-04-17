@@ -160,3 +160,21 @@ func TestBuildSystemPromptMultipleStyleFiles(t *testing.T) {
 		t.Errorf("expected exactly one Mirror directive, got %d", strings.Count(p, "Mirror"))
 	}
 }
+
+func TestBuildSystemPromptProactiveRecall(t *testing.T) {
+	b := NewBuilder("rias", "Kyle")
+	b.SetProactiveRecall(true)
+	p := b.BuildSystemPrompt(nil)
+	if !strings.Contains(p, "proactively") {
+		t.Error("expected proactive recall directive in prompt when enabled")
+	}
+}
+
+func TestBuildSystemPromptProactiveRecallDisabled(t *testing.T) {
+	b := NewBuilder("rias", "Kyle")
+	// proactiveRecall defaults false — do NOT call SetProactiveRecall
+	p := b.BuildSystemPrompt(nil)
+	if strings.Contains(p, "proactively") {
+		t.Error("proactive recall directive should not appear when disabled")
+	}
+}

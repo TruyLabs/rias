@@ -1,6 +1,7 @@
 agent:
-  name: rias           # Display name for the AI agent
-  user_name: Kyle     # Your name — used in prompts and learning extraction
+  name: rias              # Display name for the AI agent
+  user_name: Kyle         # Your name — used in prompts and learning extraction
+  proactive_recall: false # surface related memories even when not directly asked
 
 provider: claude
 providers:

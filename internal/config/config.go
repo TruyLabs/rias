@@ -58,8 +58,9 @@ type ModuleItemConfig struct {
 
 // AgentConfig holds the agent and user identity.
 type AgentConfig struct {
-	Name     string `yaml:"name"`      // Display name for the AI agent (default: "rias")
-	UserName string `yaml:"user_name"` // User's name for personalization (default: "User")
+	Name            string `yaml:"name"`             // Display name for the AI agent (default: "rias")
+	UserName        string `yaml:"user_name"`        // User's name for personalization (default: "User")
+	ProactiveRecall bool   `yaml:"proactive_recall"` // Surface related memories even when not directly asked
 }
 
 // ServerConfig holds HTTP server settings.

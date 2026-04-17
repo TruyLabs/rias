@@ -10,13 +10,19 @@ import (
 
 // Builder assembles prompts from brain context using configurable identity.
 type Builder struct {
-	agentName string
-	userName  string
+	agentName       string
+	userName        string
+	proactiveRecall bool
 }
 
 // NewBuilder creates a prompt Builder with the given agent and user names.
 func NewBuilder(agentName, userName string) *Builder {
 	return &Builder{agentName: agentName, userName: userName}
+}
+
+// SetProactiveRecall enables or disables the proactive recall directive in system prompts.
+func (b *Builder) SetProactiveRecall(enabled bool) {
+	b.proactiveRecall = enabled
 }
 
 func (b *Builder) basePersonality() string {
@@ -46,6 +52,9 @@ Below is what you know about %s:
 func (b *Builder) BuildSystemPrompt(brainFiles []*brain.BrainFile) string {
 	var sb strings.Builder
 	sb.WriteString(b.basePersonality())
+	if b.proactiveRecall {
+		sb.WriteString(fmt.Sprintf("\nWhen you have information about %s that is directly relevant to their question — even if not explicitly asked — proactively mention it.\n", b.userName))
+	}
 	sb.WriteString("\n")
 
 	var styleFiles, otherFiles []*brain.BrainFile

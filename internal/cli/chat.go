@@ -118,7 +118,9 @@ func buildRouter(cfg *config.Config) (*router.Router, *brain.FileBrain, provider
 	ret := retriever.New(b, cfg.Brain.MaxContextFiles)
 
 	// Router
-	r := router.New(b, ret, prompt.NewBuilder(cfg.AgentName(), cfg.UserName()), prov, sessMgr)
+	pb := prompt.NewBuilder(cfg.AgentName(), cfg.UserName())
+	pb.SetProactiveRecall(cfg.Agent.ProactiveRecall)
+	r := router.New(b, ret, pb, prov, sessMgr)
 
 	return r, b, prov, sessMgr, nil
 }
