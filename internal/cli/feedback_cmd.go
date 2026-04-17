@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -45,6 +46,10 @@ func runFeedback(rating, note string) error {
 	sessPath := config.ExpandPath(cfg.SessionsPath)
 	entries, err := os.ReadDir(sessPath)
 	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			fmt.Println("No sessions found. Start chatting with 'rias' first.")
+			return nil
+		}
 		return fmt.Errorf("read sessions dir: %w", err)
 	}
 
@@ -91,6 +96,9 @@ func runFeedback(rating, note string) error {
 
 	bf, err := b.Load(feedbackFilePath)
 	if err != nil {
+		if !errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("load feedback file: %w", err)
+		}
 		bf = &brain.BrainFile{
 			Path:       feedbackFilePath,
 			Tags:       []string{"feedback"},
