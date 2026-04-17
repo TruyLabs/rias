@@ -345,9 +345,30 @@ type brainContradiction struct {
 }
 
 func parseBrainContradictions(raw string) ([]brainContradiction, error) {
+	raw = strings.TrimSpace(raw)
 	start := strings.Index(raw, "[")
-	end := strings.LastIndex(raw, "]")
-	if start < 0 || end < 0 || end < start {
+	if start < 0 {
+		return []brainContradiction{}, nil
+	}
+	// Walk forward tracking bracket depth to find the matching ']',
+	// handling ']' characters that may appear inside JSON string values.
+	depth := 0
+	end := -1
+	for i := start; i < len(raw); i++ {
+		switch raw[i] {
+		case '[':
+			depth++
+		case ']':
+			depth--
+			if depth == 0 {
+				end = i
+			}
+		}
+		if end >= 0 {
+			break
+		}
+	}
+	if end < 0 {
 		return []brainContradiction{}, nil
 	}
 	var result []brainContradiction
@@ -389,6 +410,7 @@ func runBrainScan() error {
 		category := parts[0]
 		bf, err := b.Load(path)
 		if err != nil {
+			fmt.Printf("  warning: skipping %s: %v\n", path, err)
 			continue
 		}
 		byCategory[category] = append(byCategory[category], bf)
@@ -432,7 +454,11 @@ func runBrainScan() error {
 				continue
 			}
 			contradictions, err := parseBrainContradictions(resp.Content)
-			if err != nil || len(contradictions) == 0 {
+			if err != nil {
+				fmt.Printf("  warning: could not parse contradictions for %s/: %v\n", category, err)
+				continue
+			}
+			if len(contradictions) == 0 {
 				continue
 			}
 			totalFound += len(contradictions)
@@ -441,7 +467,7 @@ func runBrainScan() error {
 				fmt.Printf("  %s  ↔  %s\n", c.FileA, c.FileB)
 				fmt.Printf("  Conflict: %s\n", c.Description)
 				fmt.Printf("  Fix: %s\n", c.Suggestion)
-				fmt.Printf("  Edit: rias brain edit %s\n\n", c.FileA)
+				fmt.Printf("  Edit: rias brain edit %s  or  %s\n\n", c.FileA, c.FileB)
 			}
 		}
 	}

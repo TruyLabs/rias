@@ -204,4 +204,24 @@ func TestBuildContradictionPrompt(t *testing.T) {
 	if !strings.Contains(p, "file_a") {
 		t.Error("expected JSON return format with file_a field")
 	}
+	if !strings.Contains(p, "file_b") {
+		t.Error("expected JSON return format with file_b field")
+	}
+	if !strings.Contains(p, "description") {
+		t.Error("expected JSON return format with description field")
+	}
+	if !strings.Contains(p, "suggestion") {
+		t.Error("expected JSON return format with suggestion field")
+	}
+}
+
+func TestBuildContradictionPromptEmpty(t *testing.T) {
+	b := NewBuilder("rias", "Kyle")
+	p := b.BuildContradictionPrompt("opinions", nil)
+	if !strings.Contains(p, "opinions") {
+		t.Error("expected category name even with no files")
+	}
+	if !strings.Contains(p, "file_a") {
+		t.Error("expected JSON schema even with no files")
+	}
 }
