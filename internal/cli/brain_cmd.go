@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"encoding/csv"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -14,6 +15,7 @@ import (
 	"github.com/TruyLabs/rias/internal/auth"
 	"github.com/TruyLabs/rias/internal/brain"
 	"github.com/TruyLabs/rias/internal/config"
+	"github.com/TruyLabs/rias/internal/prompt"
 	"github.com/TruyLabs/rias/internal/provider"
 	"github.com/spf13/cobra"
 	"github.com/xuri/excelize/v2"
@@ -57,6 +59,7 @@ func newBrainCmd() *cobra.Command {
 	cmd.AddCommand(newBrainReorganizeCmd())
 	cmd.AddCommand(newBrainMigrateCmd())
 	cmd.AddCommand(newBrainDecayCmd())
+	cmd.AddCommand(newBrainScanCmd())
 	cmd.AddCommand(newSyncCmd())
 
 	return cmd
@@ -330,6 +333,125 @@ func importFile(filePath string, category string, tags []string, confidence stri
 		Source:     "imported:" + filepath.Base(filePath),
 		Updated:    brain.DateOnly{Time: time.Now()},
 	}, nil
+}
+
+const maxScanBatch = 12
+
+type brainContradiction struct {
+	FileA       string `json:"file_a"`
+	FileB       string `json:"file_b"`
+	Description string `json:"description"`
+	Suggestion  string `json:"suggestion"`
+}
+
+func parseBrainContradictions(raw string) ([]brainContradiction, error) {
+	start := strings.Index(raw, "[")
+	end := strings.LastIndex(raw, "]")
+	if start < 0 || end < 0 || end < start {
+		return []brainContradiction{}, nil
+	}
+	var result []brainContradiction
+	if err := json.Unmarshal([]byte(raw[start:end+1]), &result); err != nil {
+		return nil, fmt.Errorf("parse contradictions JSON: %w", err)
+	}
+	return result, nil
+}
+
+func newBrainScanCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "scan",
+		Short: "Scan brain files for contradictions between entries",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runBrainScan()
+		},
+	}
+}
+
+func runBrainScan() error {
+	cfg, err := loadConfig()
+	if err != nil {
+		return err
+	}
+
+	b := brain.New(getBrainPath())
+	allPaths, err := b.ListAll()
+	if err != nil {
+		return fmt.Errorf("list brain: %w", err)
+	}
+
+	// Group files by category (first path segment)
+	byCategory := make(map[string][]*brain.BrainFile)
+	for _, path := range allPaths {
+		parts := strings.SplitN(path, "/", 2)
+		if len(parts) < 2 {
+			continue
+		}
+		category := parts[0]
+		bf, err := b.Load(path)
+		if err != nil {
+			continue
+		}
+		byCategory[category] = append(byCategory[category], bf)
+	}
+
+	prov, err := getProvider(cfg)
+	if err != nil {
+		return fmt.Errorf("get provider: %w", err)
+	}
+	pb := prompt.NewBuilder(cfg.AgentName(), cfg.UserName())
+
+	// Sort categories for deterministic output
+	categories := make([]string, 0, len(byCategory))
+	for k := range byCategory {
+		categories = append(categories, k)
+	}
+	sort.Strings(categories)
+
+	totalFound := 0
+	for _, category := range categories {
+		files := byCategory[category]
+		if len(files) < 2 {
+			continue
+		}
+		// Scan in batches of maxScanBatch
+		for i := 0; i < len(files); i += maxScanBatch {
+			end := i + maxScanBatch
+			if end > len(files) {
+				end = len(files)
+			}
+			batch := files[i:end]
+			if len(batch) < 2 {
+				continue
+			}
+			scanPrompt := pb.BuildContradictionPrompt(category, batch)
+			resp, err := prov.Chat(context.Background(), "", []provider.Message{
+				{Role: "user", Content: scanPrompt},
+			})
+			if err != nil {
+				fmt.Printf("  ⚠ scan %s/: %v\n", category, err)
+				continue
+			}
+			contradictions, err := parseBrainContradictions(resp.Content)
+			if err != nil || len(contradictions) == 0 {
+				continue
+			}
+			totalFound += len(contradictions)
+			fmt.Printf("\n%s/ — %d contradiction(s):\n", category, len(contradictions))
+			for _, c := range contradictions {
+				fmt.Printf("  %s  ↔  %s\n", c.FileA, c.FileB)
+				fmt.Printf("  Conflict: %s\n", c.Description)
+				fmt.Printf("  Fix: %s\n", c.Suggestion)
+				fmt.Printf("  Edit: rias brain edit %s\n\n", c.FileA)
+			}
+		}
+	}
+
+	if totalFound == 0 {
+		fmt.Println("No contradictions found. Brain is consistent.")
+	} else {
+		fmt.Printf("Found %d contradiction(s). Use 'rias brain edit <path>' to resolve.\n", totalFound)
+	}
+	return nil
 }
 
 func newBrainReorganizeCmd() *cobra.Command {

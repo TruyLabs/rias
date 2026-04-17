@@ -181,3 +181,27 @@ func TestBuildSystemPromptProactiveRecallDisabled(t *testing.T) {
 		t.Error("proactive recall directive should not appear when disabled")
 	}
 }
+
+func TestBuildContradictionPrompt(t *testing.T) {
+	b := NewBuilder("rias", "Kyle")
+	files := []*brain.BrainFile{
+		{Path: "opinions/python.md", Content: "\nPython is great for quick scripts.\n"},
+		{Path: "opinions/python-critique.md", Content: "\nPython is slow and I avoid it in production.\n"},
+	}
+	p := b.BuildContradictionPrompt("opinions", files)
+	if !strings.Contains(p, "opinions") {
+		t.Error("expected category name in prompt")
+	}
+	if !strings.Contains(p, "contradictions") {
+		t.Error("expected contradictions instruction in prompt")
+	}
+	if !strings.Contains(p, "Python is great") {
+		t.Error("expected first file content in prompt")
+	}
+	if !strings.Contains(p, "Python is slow") {
+		t.Error("expected second file content in prompt")
+	}
+	if !strings.Contains(p, "file_a") {
+		t.Error("expected JSON return format with file_a field")
+	}
+}

@@ -142,6 +142,36 @@ Rules:
 	return sb.String()
 }
 
+// BuildContradictionPrompt creates a prompt to detect contradictions between brain files in a category.
+// The LLM returns a JSON array of contradicting file pairs with descriptions and suggestions.
+func (b *Builder) BuildContradictionPrompt(category string, files []*brain.BrainFile) string {
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf(
+		"Analyze these brain files from the %q category for %s's personal knowledge base.\n"+
+			"Identify any direct contradictions or conflicts between them — cases where one file's content "+
+			"directly opposes or is incompatible with another file's content.\n\n",
+		category, b.userName,
+	))
+	for _, bf := range files {
+		content := strings.TrimSpace(bf.Content)
+		if len(content) > 400 {
+			content = content[:400] + "..."
+		}
+		sb.WriteString(fmt.Sprintf("### %s\n%s\n\n", bf.Path, content))
+	}
+	sb.WriteString(`Return a JSON array of contradictions:
+[{
+  "file_a": "category/file1.md",
+  "file_b": "category/file2.md",
+  "description": "File A says X but File B says Y",
+  "suggestion": "How to resolve (e.g. keep the more recent view, or merge into a nuanced position)"
+}]
+
+Return [] if no contradictions are found.
+Return ONLY the JSON array, no other text.`)
+	return sb.String()
+}
+
 // BuildReflectPrompt creates a prompt for analyzing patterns across multiple sessions.
 // It asks the LLM to extract communication style, vocabulary, and recurring interests,
 // returning the same JSON Learning format as BuildLearningPrompt.
