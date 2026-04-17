@@ -42,6 +42,7 @@ func NewRootCmd() *cobra.Command {
 	root.AddCommand(newGoalCmd())
 	root.AddCommand(newReflectCmd())
 	root.AddCommand(newExpertiseCmd())
+	root.AddCommand(newFeedbackCmd())
 
 	return root
 }
