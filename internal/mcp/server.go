@@ -54,12 +54,14 @@ func NewServer(
 	p provider.Provider,
 	cfg *config.Config,
 ) *Server {
+	pb := prompt.NewBuilder(cfg.AgentName(), cfg.UserName())
+	pb.SetProactiveRecall(cfg.Agent.ProactiveRecall)
 	s := &Server{
 		router:    r,
 		brain:     b,
 		sessions:  sm,
 		provider:  p,
-		builder:   prompt.NewBuilder(cfg.AgentName(), cfg.UserName()),
+		builder:   pb,
 		cfg:       cfg,
 		reindexCh: make(chan struct{}, 1),
 	}

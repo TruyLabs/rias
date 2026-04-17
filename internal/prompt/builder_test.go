@@ -168,6 +168,9 @@ func TestBuildSystemPromptProactiveRecall(t *testing.T) {
 	if !strings.Contains(p, "proactively") {
 		t.Error("expected proactive recall directive in prompt when enabled")
 	}
+	if !strings.Contains(p, "Kyle") {
+		t.Error("expected user name in proactive recall directive")
+	}
 }
 
 func TestBuildSystemPromptProactiveRecallDisabled(t *testing.T) {

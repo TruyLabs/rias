@@ -100,6 +100,7 @@ func runReflect(since string) error {
 	if err != nil {
 		return fmt.Errorf("build router: %w", err)
 	}
+	// SetProactiveRecall is intentionally omitted: BuildReflectPrompt does not use it.
 	pb := prompt.NewBuilder(cfg.AgentName(), cfg.UserName())
 
 	reflectPrompt := pb.BuildReflectPrompt(contextFiles, msgs)

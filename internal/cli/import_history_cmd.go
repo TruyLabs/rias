@@ -77,6 +77,7 @@ func runImportHistory(providerName, filePath string) error {
 	if err != nil {
 		return fmt.Errorf("build router: %w", err)
 	}
+	// SetProactiveRecall is intentionally omitted: BuildLearningPrompt does not use it.
 	pb := prompt.NewBuilder(cfg.AgentName(), cfg.UserName())
 
 	processed, skipped, failed := 0, 0, 0
