@@ -450,7 +450,7 @@ func runBrainScan() error {
 				{Role: "user", Content: scanPrompt},
 			})
 			if err != nil {
-				fmt.Printf("  ⚠ scan %s/: %v\n", category, err)
+				fmt.Printf("  warning: scan %s/: %v\n", category, err)
 				continue
 			}
 			contradictions, err := parseBrainContradictions(resp.Content)
