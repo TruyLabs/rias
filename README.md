@@ -11,14 +11,14 @@
 
 ---
 
-## Demo
+## 🚀 Demo
 
 <img width="800" height="400" alt="image" src="https://github.com/user-attachments/assets/474d9684-e570-48fb-9173-d42b9adebd4f" />
 
 
 ---
 
-## Why rias?
+## 💡 Why rias?
 
 AI today is powerful — but forgetful.
 
@@ -32,7 +32,7 @@ It gives AI a **persistent brain** that learns, remembers, and evolves with you.
 
 ---
 
-## What it feels like
+## ✨ What it feels like
 
 ```bash
 rias teach
@@ -47,7 +47,7 @@ rias ask "How should I design this system?"
 
 ---
 
-## Quick Start
+## ⚡ Quick Start
 
 ```bash
 brew tap norenis/kai && brew install kai
@@ -59,7 +59,7 @@ rias                                # start chatting
 
 ---
 
-## The Brain
+## 🧠 The Brain
 
 ```
 brain/
@@ -78,7 +78,7 @@ Brain files are markdown with YAML frontmatter. rias appends to them as it learn
 
 ---
 
-## Configuration
+## 🛠 Configuration
 
 ### Config file location
 
@@ -216,7 +216,7 @@ server:
 
 ---
 
-## Features
+## 🔥 Features
 
 - Persistent memory (brain) across all conversations
 - Self-improvement: `reflect`, `expertise`, `feedback`, and `brain scan` keep the brain accurate over time
@@ -233,7 +233,7 @@ server:
 
 ---
 
-## Installation
+## 📦 Installation
 
 ### Homebrew (macOS / Linux) — recommended
 
@@ -268,7 +268,7 @@ This creates `~/.rias/brain/`, `~/.rias/sessions/`, a default `~/.rias/config.ya
 
 ---
 
-## Commands
+## 🧪 Commands
 
 ### Core
 
@@ -308,7 +308,7 @@ rias brain import notes.md \
   --auto-chunk               # chunk large files for better search
 ```
 
-### Goals
+### 🎯 Goals
 
 | Command | Description |
 |---------|-------------|
@@ -323,7 +323,7 @@ rias goal add "Learn Rust"                             # defaults to medium
 rias goal done 0
 ```
 
-### Self-Improvement
+### 🪞 Self-Improvement
 
 | Command | Description |
 |---------|-------------|
@@ -339,7 +339,7 @@ rias reflect --since 7d   # only the last 7 days
 rias reflect --since 2w   # only the last 2 weeks
 ```
 
-### Tasks
+### ✅ Tasks
 
 | Command | Description |
 |---------|-------------|
@@ -351,7 +351,7 @@ rias reflect --since 2w   # only the last 2 weeks
 
 Tasks are stored as brain files and are also accessible from the dashboard and via MCP.
 
-### Import
+### 📥 Import
 
 | Command | Description |
 |---------|-------------|
@@ -364,14 +364,14 @@ rias import-history --provider chatgpt --file ~/Downloads/conversations.json
 rias index-repo ~/code/myproject
 ```
 
-### Auth
+### 🔑 Auth
 
 | Command | Description |
 |---------|-------------|
 | `rias auth set-key --provider <name>` | Save an API key for a provider |
 | `rias auth status` | Show configured vs. unconfigured providers |
 
-### Modules (Plugins)
+### 🔌 Modules (Plugins)
 
 | Command | Description |
 |---------|-------------|
@@ -409,7 +409,7 @@ Built-in modules:
 | `github_prs` | Fetch pull requests from GitHub repositories |
 | `google_sheets` | Read a Google Sheet into the brain |
 
-### Sync
+### 🔄 Sync
 
 | Command | Description |
 |---------|-------------|
@@ -429,7 +429,7 @@ brain:
       branch: main
 ```
 
-### MCP
+### 🤖 MCP
 
 | Command | Description |
 |---------|-------------|
@@ -439,7 +439,7 @@ brain:
 
 ---
 
-## MCP Integration
+## 🔌 MCP Integration
 
 rias exposes brain operations as MCP tools — Claude Code, Cursor, and VS Code can read and write your brain directly.
 
