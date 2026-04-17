@@ -90,3 +90,41 @@ func TestBuildReflectPrompt(t *testing.T) {
 		t.Error("expected prompt to include brain context")
 	}
 }
+
+func TestBuildSystemPromptVocabularyMirror(t *testing.T) {
+	files := []*brain.BrainFile{
+		{Path: "style/writing.md", Content: "\nUses short sentences. Avoids jargon.\n"},
+		{Path: "identity/profile.md", Content: "\nSoftware engineer.\n"},
+	}
+	b := NewBuilder("rias", "Kyle")
+	p := b.BuildSystemPrompt(files)
+
+	styleIdx := strings.Index(p, "Uses short sentences")
+	identityIdx := strings.Index(p, "Software engineer")
+	if styleIdx == -1 {
+		t.Error("style content missing from prompt")
+	}
+	if identityIdx == -1 {
+		t.Error("identity content missing from prompt")
+	}
+	if styleIdx > identityIdx {
+		t.Error("style section should appear before other brain files")
+	}
+	if !strings.Contains(p, "Mirror") {
+		t.Error("expected 'Mirror' directive in style section")
+	}
+}
+
+func TestBuildSystemPromptNoStyleFiles(t *testing.T) {
+	files := []*brain.BrainFile{
+		{Path: "identity/profile.md", Content: "\nSoftware engineer.\n"},
+	}
+	b := NewBuilder("rias", "Kyle")
+	p := b.BuildSystemPrompt(files)
+	if strings.Contains(p, "Mirror") {
+		t.Error("should not have style mirror section when no style files present")
+	}
+	if !strings.Contains(p, "Software engineer") {
+		t.Error("identity content should still appear")
+	}
+}

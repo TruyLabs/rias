@@ -41,12 +41,31 @@ Below is what you know about %s:
 }
 
 // BuildSystemPrompt creates the system prompt from retrieved brain files.
+// Style brain files (style/*.md) are injected first with a "mirror communication style"
+// directive, before other knowledge/identity files.
 func (b *Builder) BuildSystemPrompt(brainFiles []*brain.BrainFile) string {
 	var sb strings.Builder
 	sb.WriteString(b.basePersonality())
 	sb.WriteString("\n")
 
+	var styleFiles, otherFiles []*brain.BrainFile
 	for _, bf := range brainFiles {
+		if strings.HasPrefix(bf.Path, "style/") {
+			styleFiles = append(styleFiles, bf)
+		} else {
+			otherFiles = append(otherFiles, bf)
+		}
+	}
+
+	if len(styleFiles) > 0 {
+		sb.WriteString(fmt.Sprintf("## Mirror %s's communication style exactly:\n\n", b.userName))
+		for _, bf := range styleFiles {
+			sb.WriteString(strings.TrimSpace(bf.Content))
+			sb.WriteString("\n\n")
+		}
+	}
+
+	for _, bf := range otherFiles {
 		sb.WriteString(fmt.Sprintf("### %s\n", bf.Path))
 		sb.WriteString(strings.TrimSpace(bf.Content))
 		sb.WriteString("\n\n")
