@@ -128,3 +128,35 @@ func TestBuildSystemPromptNoStyleFiles(t *testing.T) {
 		t.Error("identity content should still appear")
 	}
 }
+
+func TestBuildSystemPromptStyleOnly(t *testing.T) {
+	files := []*brain.BrainFile{
+		{Path: "style/voice.md", Content: "\nDirect and terse.\n"},
+	}
+	b := NewBuilder("rias", "Kyle")
+	p := b.BuildSystemPrompt(files)
+	if !strings.Contains(p, "Direct and terse") {
+		t.Error("style content missing")
+	}
+	if strings.Contains(p, "### style/voice.md") {
+		t.Error("style files must not emit a ### heading")
+	}
+	if !strings.Contains(p, "Mirror") {
+		t.Error("Mirror directive missing")
+	}
+}
+
+func TestBuildSystemPromptMultipleStyleFiles(t *testing.T) {
+	files := []*brain.BrainFile{
+		{Path: "style/voice.md", Content: "\nDirect.\n"},
+		{Path: "style/format.md", Content: "\nBullets preferred.\n"},
+	}
+	b := NewBuilder("rias", "Kyle")
+	p := b.BuildSystemPrompt(files)
+	if !strings.Contains(p, "Direct") || !strings.Contains(p, "Bullets preferred") {
+		t.Error("both style files must appear in output")
+	}
+	if strings.Count(p, "Mirror") != 1 {
+		t.Errorf("expected exactly one Mirror directive, got %d", strings.Count(p, "Mirror"))
+	}
+}

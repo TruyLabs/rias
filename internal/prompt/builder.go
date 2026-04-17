@@ -59,6 +59,8 @@ func (b *Builder) BuildSystemPrompt(brainFiles []*brain.BrainFile) string {
 
 	if len(styleFiles) > 0 {
 		sb.WriteString(fmt.Sprintf("## Mirror %s's communication style exactly:\n\n", b.userName))
+		// Style files are injected as raw content (no "### path" heading) so
+		// the LLM treats them as voice/tone rules rather than factual entries.
 		for _, bf := range styleFiles {
 			sb.WriteString(strings.TrimSpace(bf.Content))
 			sb.WriteString("\n\n")
