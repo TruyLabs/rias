@@ -249,3 +249,30 @@ func TestBuildExpertisePrompt(t *testing.T) {
 		t.Error("expected second brain file content in prompt")
 	}
 }
+
+func TestBuildExpertisePromptEmpty(t *testing.T) {
+	b := NewBuilder("rias", "Kyle")
+	p := b.BuildExpertisePrompt(nil, "2026-04-17")
+	if !strings.Contains(p, "Expertise Map") {
+		t.Error("expected Expertise Map heading even with no files")
+	}
+	if !strings.Contains(p, "2026-04-17") {
+		t.Error("expected date even with no files")
+	}
+}
+
+func TestBuildExpertisePromptTruncates(t *testing.T) {
+	b := NewBuilder("rias", "Kyle")
+	longContent := strings.Repeat("a", 500)
+	files := []*brain.BrainFile{
+		{Path: "knowledge/long.md", Content: longContent},
+	}
+	p := b.BuildExpertisePrompt(files, "2026-04-17")
+	// Content should be truncated at 300 chars + "..."
+	if strings.Contains(p, longContent) {
+		t.Error("expected long content to be truncated in expertise prompt")
+	}
+	if !strings.Contains(p, "...") {
+		t.Error("expected truncation marker (...) in expertise prompt")
+	}
+}

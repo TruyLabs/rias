@@ -2,8 +2,9 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
-	"path/filepath"
+	"os"
 	"strings"
 	"time"
 
@@ -39,6 +40,9 @@ func runExpertise(update bool) error {
 	if !update {
 		bf, err := b.Load(expertiseFilePath)
 		if err != nil {
+			if !errors.Is(err, os.ErrNotExist) {
+				return fmt.Errorf("load expertise map: %w", err)
+			}
 			fmt.Println("No expertise map yet. Run with --update to generate one.")
 			return nil
 		}
@@ -58,8 +62,8 @@ func runExpertise(update bool) error {
 
 	var files []*brain.BrainFile
 	for _, path := range allPaths {
-		if filepath.Base(path) == "map.md" {
-			continue // skip the expertise map itself
+		if path == expertiseFilePath {
+			continue // skip the expertise map itself to avoid circular input
 		}
 		bf, err := b.Load(path)
 		if err != nil {
