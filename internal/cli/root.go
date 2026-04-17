@@ -41,6 +41,7 @@ func NewRootCmd() *cobra.Command {
 	root.AddCommand(newIndexRepoCmd())
 	root.AddCommand(newGoalCmd())
 	root.AddCommand(newReflectCmd())
+	root.AddCommand(newExpertiseCmd())
 
 	return root
 }

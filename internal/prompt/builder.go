@@ -172,6 +172,53 @@ Return ONLY the JSON array, no other text.`)
 	return sb.String()
 }
 
+// BuildExpertisePrompt creates a prompt that synthesizes all brain files into a structured
+// expertise map in markdown format. The date string is embedded in the output.
+func (b *Builder) BuildExpertisePrompt(brainFiles []*brain.BrainFile, date string) string {
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf(
+		"Analyze these personal knowledge brain files for %s and create a concise expertise map.\n\n",
+		b.userName,
+	))
+	for _, bf := range brainFiles {
+		content := strings.TrimSpace(bf.Content)
+		if len(content) > 300 {
+			content = content[:300] + "..."
+		}
+		sb.WriteString(fmt.Sprintf("### %s\n%s\n\n", bf.Path, content))
+	}
+	sb.WriteString(fmt.Sprintf(`Return a markdown expertise map with this exact structure:
+
+# Expertise Map
+
+*Generated: %s*
+
+## Technical Skills
+
+| Skill/Domain | Level | Key Evidence |
+|---|---|---|
+| example | expert | brief evidence from brain |
+
+## Domain Knowledge
+
+| Area | Depth | Notes |
+|---|---|---|
+| example | deep | brief note |
+
+## Notable Strengths
+
+- Key strength 1
+- Key strength 2
+
+Rules:
+- Only include skills directly evidenced in the brain files
+- Levels: expert, proficient, familiar
+- Keep each row to one concise line
+- Return ONLY the markdown, no other text
+`, date))
+	return sb.String()
+}
+
 // BuildReflectPrompt creates a prompt for analyzing patterns across multiple sessions.
 // It asks the LLM to extract communication style, vocabulary, and recurring interests,
 // returning the same JSON Learning format as BuildLearningPrompt.

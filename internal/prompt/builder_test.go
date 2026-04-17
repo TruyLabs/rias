@@ -225,3 +225,27 @@ func TestBuildContradictionPromptEmpty(t *testing.T) {
 		t.Error("expected JSON schema even with no files")
 	}
 }
+
+func TestBuildExpertisePrompt(t *testing.T) {
+	b := NewBuilder("rias", "Kyle")
+	files := []*brain.BrainFile{
+		{Path: "knowledge/go.md", Content: "\nDeep Go experience. Wrote several CLIs.\n"},
+		{Path: "expertise/systems.md", Content: "\nDistributed systems background from work.\n"},
+	}
+	p := b.BuildExpertisePrompt(files, "2026-04-17")
+	if !strings.Contains(p, "Kyle") {
+		t.Error("expected user name in prompt")
+	}
+	if !strings.Contains(p, "2026-04-17") {
+		t.Error("expected date in prompt")
+	}
+	if !strings.Contains(p, "Expertise Map") {
+		t.Error("expected output format instruction mentioning 'Expertise Map'")
+	}
+	if !strings.Contains(p, "Deep Go experience") {
+		t.Error("expected first brain file content in prompt")
+	}
+	if !strings.Contains(p, "Distributed systems") {
+		t.Error("expected second brain file content in prompt")
+	}
+}
