@@ -31,8 +31,21 @@ type gptAuthor struct {
 }
 
 type gptContent struct {
-	ContentType string   `json:"content_type"`
-	Parts       []string `json:"parts"`
+	ContentType string            `json:"content_type"`
+	Parts       []json.RawMessage `json:"parts"`
+}
+
+// stringParts returns only the string entries from parts, skipping object parts
+// (image asset pointers, audio, etc.) that appear in multimodal_text messages.
+func (c gptContent) stringParts() []string {
+	out := make([]string, 0, len(c.Parts))
+	for _, p := range c.Parts {
+		var s string
+		if err := json.Unmarshal(p, &s); err == nil {
+			out = append(out, s)
+		}
+	}
+	return out
 }
 
 // ParseChatGPT parses the JSON bytes from a ChatGPT data export (conversations.json).
@@ -85,7 +98,7 @@ func walkGPTTree(mapping map[string]gptNode) []Message {
 		if node.Message != nil {
 			role := node.Message.Author.Role
 			if role == "user" || role == "assistant" {
-				content := strings.Join(node.Message.Content.Parts, "")
+				content := strings.Join(node.Message.Content.stringParts(), "")
 				content = strings.TrimSpace(content)
 				if content != "" {
 					msgs = append(msgs, Message{Role: role, Content: content})

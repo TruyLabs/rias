@@ -79,6 +79,47 @@ func TestParseChatGPTInvalidJSON(t *testing.T) {
 	}
 }
 
+func TestParseChatGPTMultimodalParts(t *testing.T) {
+	// Real ChatGPT exports contain multimodal_text messages whose parts
+	// mix strings with image_asset_pointer / audio_asset_pointer objects.
+	// The parser must tolerate object parts (skipping them) without failing.
+	const withMultimodal = `[{
+		"id": "c1", "title": "with image",
+		"mapping": {
+			"root": {"id":"root","message":null,"parent":null,"children":["usr"]},
+			"usr": {
+				"id":"usr",
+				"message": {
+					"id":"u",
+					"author":{"role":"user"},
+					"content": {
+						"content_type":"multimodal_text",
+						"parts": [
+							{"content_type":"image_asset_pointer","asset_pointer":"sediment://file_abc"},
+							"here is a screenshot, what do you think?"
+						]
+					},
+					"create_time": 1.0
+				},
+				"parent":"root",
+				"children":[]
+			}
+		}
+	}]`
+	convs, err := importer.ParseChatGPT([]byte(withMultimodal))
+	if err != nil {
+		t.Fatalf("ParseChatGPT: %v", err)
+	}
+	if len(convs) != 1 || len(convs[0].Messages) != 1 {
+		t.Fatalf("expected 1 conversation with 1 message, got %+v", convs)
+	}
+	got := convs[0].Messages[0].Content
+	want := "here is a screenshot, what do you think?"
+	if got != want {
+		t.Errorf("string part not preserved; got %q want %q", got, want)
+	}
+}
+
 func TestParseChatGPTSkipsSystemMessages(t *testing.T) {
 	const withSystem = `[{
 		"id": "c1", "title": "t",
